@@ -6,12 +6,12 @@ import { teamStandings } from '../shared/teams';
 const escape = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 export const trackFeatures: Record<string, string> = {
-  lagon: 'Courbes douces · Premiers turbos', canyon: 'Virages serrés · Boue',
-  glacier: 'Glissades · Trajectoires larges', neon: 'Chicanes · Pistes turbo',
-  mangrove: 'Courbes en S · Boue alternée', dunes: 'Longues lignes droites · Quatre turbos',
-  volcan: 'Pont de lave · Tremplin basaltique', forest: 'Pont des cimes · Saut forestier',
-  harbor: 'Pont des cargos · Rampe de quai', sky: 'Viaduc céleste · Saut des nuages',
-  foundry: 'Passerelle industrielle · Tremplin', castle: 'Pont royal · Saut des remparts',
+  lagon: 'Épingle de plage · Premiers turbos', canyon: 'Lacets en montée · Boue',
+  glacier: 'Crête glacée · Trajectoires larges', neon: 'Angles droits · Pistes turbo',
+  mangrove: 'Serpent de virages · Boue alternée', dunes: 'Lignes droites vallonnées · Quatre turbos',
+  volcan: 'Montée du cratère · Viaduc de lave', forest: 'Pont des cimes · Saut forestier',
+  harbor: 'Pont des cargos · Rampe de quai', sky: 'Deux viaducs · Saut des nuages',
+  foundry: 'Passerelle industrielle · Tremplin', castle: 'Montée au donjon · Saut des remparts',
 };
 export function trackOutline(track: TrackDefinition) {
   const minX = Math.min(...track.points.map(point => point.x)), maxX = Math.max(...track.points.map(point => point.x));

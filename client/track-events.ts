@@ -3,7 +3,7 @@ import { BRANCH_POST_HEIGHT } from '../shared/obstacle-heights';
 import { getTrack, nearestTrack, trackElevation, trackPoint, type Vec2 } from '../shared/track';
 import { getTrackEvent, type TrackBranch, type TrackEventInfo } from '../shared/track-events';
 import { trackZoneGeometry } from './track-zone-geometry';
-import { trackLoopPose } from '../shared/track-loop';
+import { bankLift, roadPose } from '../shared/road-pose';
 import { interactionStatus, interactionZones, type TrackInteractionState } from '../shared/track-interactions';
 
 function ribbon(points: Array<Vec2 & { progress?: number; angle?: number }>, width: number, height: number, trackId: string, offset = 0) {
@@ -25,6 +25,7 @@ function ribbon(points: Array<Vec2 & { progress?: number; angle?: number }>, wid
     }
   });
   points = sampled;
+  const track = getTrack(trackId);
   const positions: number[] = [], indices: number[] = [];
   // A shared one-metre lateral grid keeps the road and its coloured overlays
   // on compatible triangles through turns and elevation changes.
@@ -36,8 +37,16 @@ function ribbon(points: Array<Vec2 & { progress?: number; angle?: number }>, wid
     const dx = after.x - before.x, dz = after.z - before.z, length = Math.hypot(dx, dz) || 1;
     const nx = point.angle === undefined ? dz / length : Math.cos(point.angle);
     const nz = point.angle === undefined ? -dx / length : -Math.sin(point.angle);
-    const y = height + trackElevation(point.progress ?? nearestTrack(point.x, point.z, trackId).progress, trackId);
-    for (const column of columns) positions.push(point.x + nx * column, y, point.z + nz * column);
+    const own = point.progress === undefined ? undefined : trackElevation(point.progress, trackId);
+    for (const column of columns) {
+      const x = point.x + nx * column, z = point.z + nz * column, near = nearestTrack(x, z, trackId);
+      // Over the main road a branch lies on its surface, slope and banking included:
+      // a ribbon crossing it at an angle would otherwise rise through the tarmac.
+      // Further out it eases onto the height of its own centre line.
+      const local = trackElevation(near.progress, trackId) + bankLift(near.progress, (x - near.x) * Math.cos(near.angle) - (z - near.z) * Math.sin(near.angle), track);
+      const apart = own === undefined ? 0 : Math.max(0, Math.min(1, (near.distance - track.width / 2 - 2) / 10));
+      positions.push(x, height + local + ((own ?? local) - local) * apart * apart * (3 - 2 * apart), z);
+    }
     if (index < points.length - 1) for (let column = 0; column < columns.length - 1; column++) {
       const a = index * columns.length + column, b = a + columns.length;
       indices.push(a, b, a + 1, a + 1, b, b + 1);
@@ -75,6 +84,7 @@ export class TrackEventsView {
     const mesh = this.mesh(this.box, color); mesh.position.set(x, height / 2 + trackElevation(progress ?? nearestTrack(x, z, this.trackId).progress, this.trackId), z); mesh.scale.set(.35, height, .35); return mesh;
   }
   private sign(text: string, point: Vec2 & { progress?: number }, color: string) {
+    if (typeof document === 'undefined') return; // Signs are drawn on a canvas; geometry-only use has none.
     const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 112;
     const ctx = canvas.getContext('2d')!;
     ctx.fillStyle = '#163038'; ctx.fillRect(0, 0, 512, 112); ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.strokeRect(4, 4, 504, 104);
@@ -112,8 +122,11 @@ export class TrackEventsView {
     if (route.kind === 'technical') { overlay(.2, .35, '#70d9a7'); overlay(.6, .7, '#aadce9'); }
     for (let index = 5; index < route.points.length - 4; index += 5) {
       const point = route.points[index]!;
-      for (const side of [-1, 1]) this.post(point.x + Math.cos(point.angle) * side * (route.width / 2 + .6),
-        point.z - Math.sin(point.angle) * side * (route.width / 2 + .6), accent, BRANCH_POST_HEIGHT, point.progress);
+      for (const side of [-1, 1]) {
+        const x = point.x + Math.cos(point.angle) * side * (route.width / 2 + .6), z = point.z - Math.sin(point.angle) * side * (route.width / 2 + .6);
+        // Posts line the branch where it is a road of its own, never the lanes of the main road it leaves.
+        if (nearestTrack(x, z, track.id).distance > track.width / 2 + 1) this.post(x, z, accent, BRANCH_POST_HEIGHT, point.progress);
+      }
     }
     const saved = Math.round((1 - route.length / (route.end - route.start)) * 100);
     const title = route.kind === 'detour' ? 'DÉVIATION LARGE · OBJETS' : route.kind === 'technical' ? 'VOIE TURBO · GRANDES COURBES' : 'RACCOURCI · −' + saved + ' %';
@@ -136,11 +149,11 @@ export class TrackEventsView {
       plate.name=`interaction-plate-${module.id}`; plate.renderOrder=150;
       const target=this.mesh(trackZoneGeometry(track.id,module,.13),status==='active'?'#75f4ba':'#426d76');
       target.name=`interaction-target-${module.id}`;
-      const pose=trackLoopPose(module.trigger,track.id,track.width/2+2);
-      if (!pose.active) this.sign(`PLAQUE ${index+1} → ${module.kind==='boost'?'TURBO':'SAUT'} · ${status==='active'?'ACTIF':status==='warning'?'DANS 1 s':status==='cooldown'?'RECHARGE':'ROULEZ DESSUS'}`,
+      const pose=roadPose(module.trigger,track.id,track.width/2+2);
+      this.sign(`PLAQUE ${index+1} → ${module.kind==='boost'?'TURBO':'SAUT'} · ${status==='active'?'ACTIF':status==='warning'?'DANS 1 s':status==='cooldown'?'RECHARGE':'ROULEZ DESSUS'}`,
         {x:pose.x,z:pose.z,progress:module.trigger},color);
-      const destination=trackLoopPose(module.start,track.id,track.width/2+2);
-      if (!destination.active) this.sign(`CIBLE ${index+1} · ${module.kind==='boost'?'TURBO':'SAUT'} ${status==='active'?'ACTIF':'SUR PLAQUE'}`,
+      const destination=roadPose(module.start,track.id,track.width/2+2);
+      this.sign(`CIBLE ${index+1} · ${module.kind==='boost'?'TURBO':'SAUT'} ${status==='active'?'ACTIF':'SUR PLAQUE'}`,
         {x:destination.x,z:destination.z,progress:module.start},color);
     }
     for (const route of event.branches) this.route(route, event);
@@ -170,10 +183,8 @@ export class TrackEventsView {
       patch.renderOrder = overlayOrder++;
       patch.name = `event-zone-${zone.id}`;
       patch.userData = { kind: zone.kind, start: zone.start, end: zone.end };
-      const pose = trackLoopPose(zone.start, track.id, track.width / 2 + 2);
-      // Keep signs roadside at ground-level entry; loop patches themselves
-      // follow the inverted ribbon instead of appearing on the ground below.
-      if (!pose.active) this.sign(zone.kind === 'boost' ? 'TURBO · CE TOUR' : zone.kind === 'ice' ? 'GLACE · CE TOUR' : 'BOUE · CE TOUR',
+      const pose = roadPose(zone.start, track.id, track.width / 2 + 2);
+      this.sign(zone.kind === 'boost' ? 'TURBO · CE TOUR' : zone.kind === 'ice' ? 'GLACE · CE TOUR' : 'BOUE · CE TOUR',
         { x: pose.x, z: pose.z, progress: zone.start }, color);
     }
     if (event.weather !== 'clear') {

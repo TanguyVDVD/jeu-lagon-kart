@@ -15,10 +15,10 @@ export const RELAY_LAP_LIMIT = 2;
 export const freshRaceFun = (): RaceFunFeedback => ({ wallSeconds: 0, chain: 0, chainTime: 0,
   feedbackSeq: 0, feedbackKind: '', feedbackValue: 0 });
 
-type Trick = 'drift' | 'jump' | 'loop' | 'landing';
-const mask: Record<Trick, number> = { drift: 1, jump: 2, loop: 4, landing: 8 };
+type Trick = 'drift' | 'jump' | 'landing';
+const mask: Record<Trick, number> = { drift: 1, jump: 2, landing: 8 };
 type Flow = { mask: number; left: number; lap: number; spent: number; credited: Map<string, number>;
-  jump: string; airTime: number; airClean: boolean; loop: string; loopDistance: number;
+  jump: string; airTime: number; airClean: boolean;
   moving: number; stopped: number; blockedUntil: number; bestProgress: number; lastBoxProgress: number; assistedLap: number };
 const flows = new WeakMap<Kart, Flow>();
 type Relay = { target: string; expires: number; progress: number };
@@ -28,7 +28,7 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
 function flow(kart: Kart): Flow {
   let state = flows.get(kart);
   if (!state) { state = { mask: 0, left: 0, lap: kart.lap, spent: 0, credited: new Map(), jump: '', airTime: 0,
-    airClean: true, loop: '', loopDistance: 0, moving: 0, stopped: 0, blockedUntil: 0,
+    airClean: true, moving: 0, stopped: 0, blockedUntil: 0,
     bestProgress: kart.progress, lastBoxProgress: -Infinity, assistedLap: -1 }; flows.set(kart, state); }
   if (state.lap !== kart.lap) { state.lap = kart.lap; state.spent = 0; }
   return state;
@@ -41,7 +41,7 @@ function relayState(world: World): Relays {
 export function resetWorldFun(world: World) { relays.delete(world); }
 export function resetRaceFun(kart: Kart) { flows.delete(kart); kart.fun = freshRaceFun(); }
 export function interruptRaceFun(kart: Kart) {
-  const state = flow(kart); state.mask = 0; state.left = 0; state.jump = ''; state.loop = ''; state.airClean = false;
+  const state = flow(kart); state.mask = 0; state.left = 0; state.jump = ''; state.airClean = false;
   kart.fun = { ...(kart.fun ?? freshRaceFun()), chain: 0, chainTime: 0 };
 }
 export function raceFeedback(kart: Kart, kind: RaceFeedbackKind, value: number) {
@@ -58,12 +58,12 @@ export function railResponse(speed: number, incidence: number, seconds: number, 
 }
 
 export interface FunMovementBefore {
-  progress: number; localProgress: number; speed: number; airborne: boolean; loopId: string;
+  progress: number; localProgress: number; speed: number; airborne: boolean;
   driftCharge: number; wallSeconds: number; resetCooldown: number; x: number; z: number;
 }
 export function captureFunMovement(kart: Kart): FunMovementBefore {
   return { progress: kart.progress, localProgress: nearestDriveableTrack(kart.x, kart.z, kart.trackId, kart.eventStage, kart.eventLevel, { progress: kart.routeProgress ?? kart.progress, elevation: kart.elevation }).progress,
-    speed: kart.speed, airborne: kart.airborne, loopId: kart.loopId, driftCharge: kart.driftCharge,
+    speed: kart.speed, airborne: kart.airborne, driftCharge: kart.driftCharge,
     wallSeconds: kart.fun?.wallSeconds ?? 0, resetCooldown: kart.resetCooldown, x: kart.x, z: kart.z };
 }
 function trick(kart: Kart, kind: Trick, credit: string) {
@@ -119,24 +119,6 @@ export function updateRaceFun(world: World, kart: Kart, input: Input, before: Fu
         trick(kart, 'landing', `landing:${state.jump}`);
       state.jump = ''; state.airTime = 0;
     }
-    const entered = !before.loopId && kart.loopId;
-    if (entered) {
-      const loop = track.loops.find(loop => loop.id === kart.loopId);
-      if (loop && before.localProgress <= loop.start + 3 && near.progress <= loop.start + 8) {
-        state.loop = loop.id; state.loopDistance = 0;
-      }
-    }
-    if (state.loop && (kart.loopId === state.loop || before.loopId === state.loop)) {
-      const step = near.progress - before.localProgress;
-      if (step >= 0 && step < 20) state.loopDistance += step;
-      else state.loop = '';
-    }
-    if (before.loopId && !kart.loopId && state.loop === before.loopId) {
-      const loop = track.loops.find(loop => loop.id === state.loop);
-      if (loop && near.progress >= loop.end && state.loopDistance >= (loop.end - loop.start) * .9)
-        trick(kart, 'loop', `loop:${state.loop}`);
-      state.loop = '';
-    }
   } else state.airClean = false;
   kart.fun = { ...(kart.fun ?? freshRaceFun()), chain: Object.values(mask).filter(bit => state.mask & bit).length, chainTime: state.left };
 }
@@ -160,7 +142,7 @@ export function noteItemDraw(world: World, kart: Kart, seconds: number) {
 }
 
 export function armTeamRelay(world: World, follower: Kart, leader: Kart) {
-  if (!world.teamMode || follower.team !== leader.team || follower.airborne || leader.airborne || follower.loopId || leader.loopId ||
+  if (!world.teamMode || follower.team !== leader.team || follower.airborne || leader.airborne ||
     Math.abs(follower.elevation - leader.elevation) > 1.5) return;
   relayState(world).pending.set(follower.id, { target: leader.id, expires: world.raceTime + 4, progress: follower.progress });
 }
@@ -174,7 +156,7 @@ export function resolveTeamRelays(world: World) {
     if (follower.progress <= leader.progress + 2 || follower.progress < attempt.progress + 12) continue;
     state.pending.delete(id);
     if (Math.hypot(follower.x - leader.x, follower.z - leader.z) > 25 || Math.abs(follower.elevation - leader.elevation) > 1.5 ||
-      Math.cos(follower.angle - leader.angle) < .8 || follower.airborne || leader.airborne || follower.loopId || leader.loopId) continue;
+      Math.cos(follower.angle - leader.angle) < .8 || follower.airborne || leader.airborne) continue;
     const pair = [follower.id, leader.id].sort().join(':');
     const lap = Math.max(follower.lap, leader.lap);
     if (state.used.get(pair) === lap) continue;

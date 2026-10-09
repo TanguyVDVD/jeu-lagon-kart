@@ -73,8 +73,8 @@ test('a disconnected owner retains team protection for an already launched proje
 test('a star passes through teammates without consuming their shield but stuns an unprotected enemy', () => {
   const world = race(), [star, ally, enemy] = world.players;
   use(world, 'star');
-  Object.assign(ally!, { x: star!.x + .5, z: star!.z, speed: 0, shield: 4 });
-  Object.assign(enemy!, { x: star!.x - .5, z: star!.z, speed: 0 });
+  Object.assign(ally!, { x: star!.x + .5, z: star!.z, elevation: star!.elevation, speed: 0, shield: 4 });
+  Object.assign(enemy!, { x: star!.x - .5, z: star!.z, elevation: star!.elevation, speed: 0 });
   stepWorld(world, new Map(), dt);
   assert.equal(star!.stun, 0); assert.equal(ally!.stun, 0); assert.ok(ally!.shield > 3.9);
   assert.ok(enemy!.stun > 0); assert.ok(star!.invincible > 5);

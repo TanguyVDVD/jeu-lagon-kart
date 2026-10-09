@@ -82,7 +82,7 @@ function findCrossings(track: TrackDefinition): RawCrossing[] {
 }
 function reliefRange(track: TrackDefinition, station: Station): { min: number; max: number } {
   const positions = [station.start, station.end, station.progress];
-  const features = [...track.elevations, ...track.loops];
+  const features = track.elevations;
   for (const feature of features) for (const point of [feature.start, feature.end, (feature.start + feature.end) / 2,
     ...('approach' in feature ? [feature.start + feature.approach, feature.end - feature.approach] : [])]) {
     for (const turn of [-track.length, 0, track.length]) if (point + turn >= station.start && point + turn <= station.end) positions.push(point + turn);

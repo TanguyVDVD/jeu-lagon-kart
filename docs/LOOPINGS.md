@@ -1,5 +1,7 @@
 # Circuits et loopings magnétiques — révision 2
 
+> **Archive.** Les loopings ont été retirés du jeu le 9 octobre 2026 (branche `feat/track-relief-perf`) : modules, physique, éditeur et tests. Ce document décrit l'état précédent. Voir [RELIEF_PERF_PROGRESS.md](RELIEF_PERF_PROGRESS.md).
+
 Les douze tracés ont été redessinés. Les distances restent compatibles avec des courses courtes : 628 à 711 m pour les six premiers, 1 150 à 1 285 m pour les six grands circuits. Les routes sont fermées, sans croisement au sol ; douze portes ordonnées valident chaque tour.
 
 | Circuit | Silhouette et rythme |

@@ -13,7 +13,6 @@ export const trackLapLabel = (track: TrackDefinition) => `${track.lapCount ?? TO
 /** Describe actual modules, including player-created circuits, rather than inferring from the theme. */
 export function trackHighlights(track: TrackDefinition): string[] {
   const features: string[] = [];
-  if (track.loops.length) features.push('Loopings');
   if (track.crossings?.length) features.push('Ponts et tunnels');
   else if (track.elevations.some(feature => feature.kind === 'bridge')) features.push('Ponts');
   if (track.elevations.some(feature => feature.kind === 'jump') || track.interactions?.some(feature => feature.kind === 'jump')) features.push('Sauts');

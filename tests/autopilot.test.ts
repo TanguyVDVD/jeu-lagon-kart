@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { autopilot } from '../shared/autopilot.js';
 import { createKart, createWorld, stepWorld, trackPoint, nearestTrack, getTrack } from '../shared/game.js';
+import { trackElevation } from '../shared/track.js';
 import { getTrackEvent } from '../shared/track-events.js';
 
 function stoppedBeforeClosure() {
@@ -12,7 +13,7 @@ function stoppedBeforeClosure() {
   const progress = nearestTrack(blocker.x, blocker.z, track.id).progress - blocker.halfLength - .4;
   const nextCheckpoint = Math.floor(progress / (track.length / track.checkpoints.length)) + 1;
   const gate = track.checkpoints[nextCheckpoint - 1]!;
-  Object.assign(kart, { ...trackPoint(progress, track.id),
+  Object.assign(kart, { ...trackPoint(progress, track.id), elevation: trackElevation(progress, track.id),
     nextCheckpoint, progress, eventLevel: 3, eventStage: 1,
     respawnX: gate.x + Math.sin(gate.angle) * 2, respawnZ: gate.z + Math.cos(gate.angle) * 2,
     respawnAngle: gate.angle });
@@ -32,10 +33,11 @@ test('a closure before the next gate requests ordinary recovery without changing
 test('closure recovery does not reset a moving kart or one genuinely clearing the debris in flight', () => {
   const { kart } = stoppedBeforeClosure();
   kart.speed = 18; assert.equal(autopilot(kart, 1).reset, false);
-  kart.speed = 0; kart.elevation = getTrackEvent('neon', 1, 3).blockers[0]!.height + 1;
+  const debris = getTrackEvent('neon', 1, 3).blockers[0]!;
+  kart.speed = 0; kart.elevation = debris.elevation + debris.height + 1;
   kart.airborne = true; assert.equal(autopilot(kart, 2).reset, false);
   kart.airborne = false; assert.equal(autopilot(kart, 3).reset, false, 'actual vertical clearance also prevents a false collision');
-  Object.assign(kart, trackPoint(25, 'neon'), { nextCheckpoint: 1, elevation: 0 });
+  Object.assign(kart, trackPoint(25, 'neon'), { nextCheckpoint: 1, elevation: trackElevation(25, 'neon') });
   assert.equal(autopilot(kart, 4).reset, false, 'a normal stopped kart must still launch normally');
 });
 

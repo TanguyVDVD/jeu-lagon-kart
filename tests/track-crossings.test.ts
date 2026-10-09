@@ -49,12 +49,11 @@ test('three intersecting routes stack cumulatively, retaining clearance above an
   assert.deepEqual(heights.map(h => Math.round(h * 10)), [0,57,114]); assertClearance(track);
 });
 
-test('authored bridges, jump ramps and loops compose with the automatic floors', () => {
-  for (const kind of ['bridge', 'jump', 'loop'] as const) {
+test('authored bridges and jump ramps compose with the automatic floors', () => {
+  for (const kind of ['bridge', 'jump'] as const) {
     const source = record(`relief-${kind}`), flat = compileCustomTrack(source), crossing = flat.crossings![0]!;
     const start = (crossing.lowerStart - 30) / flat.length, end = (crossing.lowerEnd + 30) / flat.length;
-    if (kind === 'loop') source.draft.loops = [{ start, end, height: 12, lateralSpread: 0 }];
-    else source.draft.elevations = [{ kind, start, end, height: 12, approach: 15 }];
+    source.draft.elevations = [{ kind, start, end, height: 12, approach: 15 }];
     const track = registerCustomTrack(source);
     assertClearance(track); assert.ok(track.crossings![0]!.height > 5.7);
     assert.ok(baseTrackElevation(crossing.lowerProgress, track) > 0, 'authored relief has not been removed');

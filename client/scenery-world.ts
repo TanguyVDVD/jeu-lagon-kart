@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { TRACKS, trackPoint, type TrackDefinition } from '../shared/track';
 import { nearestDriveableTrack } from '../shared/track-events';
 import { createSceneryTree } from './scenery-assets';
-import { trackLoopPose } from '../shared/track-loop';
 
 const palette = new Map<string, THREE.MeshStandardMaterial>();
 function material(color: string, glow = false) {
@@ -25,7 +24,6 @@ export function buildSceneryWorld(track: TrackDefinition): THREE.Group {
   const points=track.points, cx=(Math.min(...points.map(p=>p.x))+Math.max(...points.map(p=>p.x)))/2;
   const cz=(Math.min(...points.map(p=>p.z))+Math.max(...points.map(p=>p.z)))/2;
   const radius=Math.max(...points.map(p=>Math.hypot(p.x-cx,p.z-cz)));
-  const loopCorridors=track.loops.flatMap(loop=>Array.from({length:33},(_,i)=>trackLoopPose(loop.start+(loop.end-loop.start)*i/32,track.id)));
   const reserved:Array<{x:number,z:number,radius:number,name:string}>=[];
   let seed=track.id.split('').reduce((n,c)=>n*31+c.charCodeAt(0),42)>>>0;
   const random=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
@@ -42,7 +40,7 @@ export function buildSceneryWorld(track: TrackDefinition): THREE.Group {
     if(reserved.some(p=>Math.hypot(p.x-x,p.z-z)<=p.radius+r+2))return false;
     const near=nearestDriveableTrack(x,z,track.id,2,3);
     const extra=sceneryId==='sky'||sceneryId==='foundry'?35:8;
-    return near.distance>near.width/2+r+extra && loopCorridors.every(p=>Math.hypot(p.x-x,p.z-z)>track.width/2+r+12);
+    return near.distance>near.width/2+r+extra;
   };
   function site(name:string,footprint:number,desiredX=cx,desiredZ=cz) {
     let best:{x:number,z:number,score:number}|undefined;

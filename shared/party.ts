@@ -43,7 +43,7 @@ export class RaceHighlights {
     }
     for (const kart of players) {
       if (kart.cpu) continue;
-      if (kart.airborne && !kart.loopId) {
+      if (kart.airborne) {
         const jump = this.jump.get(kart.id) ?? { at: world.raceTime, time: 0 }; jump.time += dt; this.jump.set(kart.id, jump);
       } else {
         const jump = this.jump.get(kart.id); this.jump.delete(kart.id);

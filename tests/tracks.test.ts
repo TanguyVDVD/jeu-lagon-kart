@@ -4,7 +4,7 @@ import { TRACKS, TRACK_IDS, TRACK, TRACK_LENGTH, ROAD_WIDTH, CHECKPOINTS, COLORS
   getTrack, isTrackId, nearestTrack, trackPoint, trackSurface, spawnPoint,
   createKart, createWorld, startRace, stepKart, stepWorld, resetKart, neutralInput,
   type Kart, type TrackDefinition, type TrackZone, type Vec2, type World } from '../shared/game.js';
-import { trackElevation, trackSlope, trackJumpAt } from '../shared/track.js';
+import { reliefElevation, trackElevation, trackSlope, trackJumpAt } from '../shared/track.js';
 import { autopilot } from '../shared/autopilot.js';
 
 const dt = 1 / 30;
@@ -35,7 +35,7 @@ test('twelve circuits expose bounded zones, closed nonintersecting routes and co
   for (const track of TRACKS) {
     assert.equal(isTrackId(track.id), true);
     const extended = track.elevations.length > 0;
-    assert.ok(extended ? track.length > 900 && track.length < 1400 : track.length > 500 && track.length < 750, track.id);
+    assert.ok(extended ? track.length > 1200 && track.length < 1600 : track.length > 800 && track.length < 1300, track.id);
     assert.ok(extended ? track.width >= 22 && track.width <= 24 : track.width >= 15 && track.width <= 18);
     assert.equal(track.checkpoints.length, 12);
     assert.ok(Math.hypot(trackPoint(0, track.id).x - trackPoint(track.length, track.id).x,
@@ -85,11 +85,11 @@ test('new circuits leave space between separate bends and a dry route beside eac
 for (const track of TRACKS) {
   test(track.id + ': eight ordinary input drivers finish three laps with items, zones and collisions', t => {
     const world = racing(track.id, 8);
-    for (let tick = 0; tick < 30 * (track.elevations.length ? 220 : 150) && world.phase === 'racing'; tick++)
+    for (let tick = 0; tick < 30 * 220 && world.phase === 'racing'; tick++)
       stepWorld(world, new Map(world.players.map(kart => [kart.id, autopilot(kart, tick, true)])), dt);
     assert.equal(world.phase, 'finished');
     assert.equal(world.players.filter(kart => kart.finished && kart.lap === TOTAL_LAPS).length, 8);
-    assert.ok(world.raceTime < (track.elevations.length ? 180 : 100), track.id + ': ' + world.raceTime);
+    assert.ok(world.raceTime < TOTAL_LAPS * track.length / 25, track.id + ': ' + world.raceTime);
     assert.equal(new Set(world.players.map(kart => kart.rank)).size, 8);
     assert.ok(world.players.every(kart => kart.trackId === track.id));
     t.diagnostic(track.id + ': 8/8 finished in ' + world.raceTime.toFixed(2) + ' simulation seconds');
@@ -236,26 +236,27 @@ test('six additional themes contain gentle bridges, genuine ramp profiles and cl
   for (const track of additions) {
     assert.ok(track.elevations.some(feature => feature.kind === 'bridge'));
     assert.equal(track.elevations.filter(feature => feature.kind === 'jump').length, 1);
-    assert.equal(trackElevation(0, track.id), 0);
-    assert.equal(trackElevation(track.length, track.id), 0);
-    assert.equal(trackElevation(-1, track.id), 0);
+    // Structures stand on the hills: every height below is measured above the natural ground.
+    const above = (progress: number) => trackElevation(progress, track.id) - reliefElevation(progress, track);
+    assert.equal(above(0), 0); assert.equal(above(track.length), 0); assert.equal(above(-1), 0);
+    assert.ok(Math.abs(trackSlope(0, track.id)) < 1e-9, track.id + ': the starting grid is level');
     const ordered = [...track.elevations].sort((a, b) => a.start - b.start);
     for (let i = 0; i < ordered.length; i++) {
       const feature = ordered[i]!;
       assert.ok(feature.start > 50 && feature.end < track.length - 55);
       if (i) assert.ok(feature.start > ordered[i - 1]!.end + 8, track.id + ': structures overlap');
       assert.ok(feature.height > 0 && feature.end > feature.start);
-      assert.ok(Math.abs(trackElevation(feature.start, track.id)) < 1e-8);
+      assert.ok(Math.abs(above(feature.start)) < 1e-8);
       if (feature.kind === 'bridge') {
-        assert.ok(Math.abs(trackElevation(feature.end, track.id)) < 1e-8);
-        assert.ok(Math.abs(trackElevation((feature.start + feature.end) / 2, track.id) - feature.height) < 1e-6);
+        assert.ok(Math.abs(above(feature.end)) < 1e-8);
+        assert.ok(Math.abs(above((feature.start + feature.end) / 2) - feature.height) < 1e-6);
         for (let progress = feature.start; progress <= feature.end; progress += .4) {
           assert.ok(Math.abs(trackSlope(progress, track.id)) <= .151, track.id + ': bridge steeper than 15 percent');
           assert.ok(Math.abs(trackElevation(progress + .01, track.id) - trackElevation(progress, track.id)) < .0016);
         }
       } else {
-        assert.ok(Math.abs(trackElevation(feature.end, track.id) - feature.height) < 1e-7);
-        assert.equal(trackElevation(feature.end + .05, track.id), 0);
+        assert.ok(Math.abs(above(feature.end) - feature.height) < 1e-7);
+        assert.equal(above(feature.end + .05), 0);
         assert.ok(trackSlope(feature.start + 1, track.id) < .15);
         assert.ok(feature.launchSpeed! >= 6 && feature.launchSpeed! <= 9);
         assert.equal(trackJumpAt(feature.end - 1, track.id)?.id, feature.id);
@@ -265,7 +266,7 @@ test('six additional themes contain gentle bridges, genuine ramp profiles and cl
           const point = trackPoint(feature.end + distance, track.id);
           const sideways = Math.abs((point.x - launch.x) * Math.cos(launch.angle) - (point.z - launch.z) * Math.sin(launch.angle));
           assert.ok(sideways < track.width / 2 - 4, track.id + ': landing corridor requires a sharper turn');
-          assert.equal(trackElevation(feature.end + distance, track.id), 0);
+          assert.equal(above(feature.end + distance), 0);
         }
       }
     }

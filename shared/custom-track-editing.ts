@@ -27,7 +27,7 @@ export function projectCustomTrackPoint(draft:CustomTrackDraft,point:Vec2,refere
   });return best;
 }
 /** Clamp the complete interval at the finish line: dragging never shortens a
- * zone, bridge, event or loop. A switch's plate and target move independently. */
+ * zone, bridge or event. A switch's plate and target move independently. */
 export function moveCustomTrackModule(draft:CustomTrackDraft,selection:TrackModuleSelection,fraction:number,offset?:number):boolean {
   const feature=customTrackModule(draft,selection);if(!feature||!Number.isFinite(fraction))return false;
   const before=JSON.stringify(feature);

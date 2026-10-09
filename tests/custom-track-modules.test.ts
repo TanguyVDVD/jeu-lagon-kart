@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { CUSTOM_TRACK_TEMPLATES, compileCustomTrack, registerCustomTrack, validateCustomTrackDraft, type StoredCustomTrack } from '../shared/custom-tracks.js';
 import { getTrackLapCount, getTrackRaceTimeLimit, getTrackReplayTimeLimit, trackElevation, trackPoint } from '../shared/track.js';
 import { dynamicSurface, getTrackEvent } from '../shared/track-events.js';
-import { trackLoopPose } from '../shared/track-loop.js';
 import { COLORS, createKart, createWorld, neutralInput, startRace, stepKart, stepWorld } from '../shared/game.js';
 import { autopilot } from '../shared/autopilot.js';
 import { CustomTrackStore } from '../server/custom-track-store.js';
@@ -20,7 +19,6 @@ function source(name: string): StoredCustomTrack {
     {kind:'bridge',start:.1,end:.24,height:5,approach:25},
     {kind:'jump',start:.4,end:.42,height:2,approach:0,launchSpeed:7},
   ];
-  draft.loops = [{start:.56,end:.65,height:24,lateralSpread:20}];
   draft.events = [
     {lap:2,kind:'rain',start:.3,end:.36},
     {lap:4,kind:'ice',start:.72,end:.75},
@@ -29,20 +27,14 @@ function source(name: string): StoredCustomTrack {
   return {id:`custom-modules-${name}`,revision:1,draft,createdAt:'2026-10-07T00:00:00.000Z',updatedAt:'2026-10-07T00:00:00.000Z'};
 }
 
-test('custom modules compile into real bridge, jump and loop geometry without mutating the draft',()=>{
+test('custom modules compile into real bridge and jump geometry without mutating the draft',()=>{
   const saved=source('geometry'), before=structuredClone(saved), track=registerCustomTrack(saved);
   assert.equal(getTrackLapCount(track.id),6); assert.equal(getTrackLapCount('lagon'),3);
   assert.equal(getTrackRaceTimeLimit(track.id),600); assert.equal(getTrackRaceTimeLimit('lagon'),300);
-  assert.deepEqual(saved,before); assert.equal(track.elevations.length,2); assert.equal(track.loops.length,1);
+  assert.deepEqual(saved,before); assert.equal(track.elevations.length,2);
   assert.equal(trackElevation(track.length*.17,track.id),5);
   assert.ok(Math.abs(trackElevation(track.length*.41,track.id)-1)<1e-8);
   assert.equal(track.elevations[1]!.launchSpeed,7);
-  const pose=trackLoopPose(track.length*.605,track.id);
-  assert.equal(pose.active,true); assert.ok(pose.y>23); assert.ok(pose.up.y<0,'kart is inverted at the top');
-  for(let sample=0;sample<=100;sample++){
-    const p=trackLoopPose(track.length*(.56+.09*sample/100),track.id);
-    assert.ok([p.x,p.y,p.z,p.pitch,p.speedScale,...Object.values(p.right),...Object.values(p.up),...Object.values(p.tangent)].every(Number.isFinite));
-  }
 });
 
 test('new authored options reject malformed values while preserving optional historical draft fields',()=>{
@@ -50,14 +42,15 @@ test('new authored options reject malformed values while preserving optional his
   assert.deepEqual(validateCustomTrackDraft(plain).draft,plain);
   for(const patch of [
     {lapCount:0},{lapCount:21},{lapCount:3.5},
-    {loops:[{start:.2,end:.2,height:20,lateralSpread:10}]},
-    {loops:[{start:.2,end:.3,height:NaN,lateralSpread:10}]},
     {elevations:[{kind:'bridge',start:.2,end:.4,height:5,approach:0}]},
     {elevations:[{kind:'jump',start:.2,end:.3,height:5,approach:0,launchSpeed:26}]},
     {events:[{lap:4,kind:'rain',start:.2,end:.3}]},
     {events:[{lap:2,kind:'unknown',start:.2,end:.3}]},
     {events:[{lap:2,kind:'rain',start:.4,end:.3}]},
   ]) assert.equal(validateCustomTrackDraft({...plain,...patch}).ok,false,JSON.stringify(patch));
+  // Drafts saved while loopings existed still load; the retired module is dropped.
+  const retired=validateCustomTrackDraft({...plain,loops:[{start:.2,end:.3,height:20,lateralSpread:10}]});
+  assert.equal(retired.ok,true); assert.deepEqual(retired.draft,plain);
 });
 
 test('scheduled effects activate only on their leader lap, including laps beyond three, and change real driving',()=>{
@@ -98,18 +91,18 @@ test('all modules and lap rules survive publication, immutable versions and reop
   assert.deepEqual(compileCustomTrack(reopened.get(first.runtimeId)!),compileCustomTrack(first));
 });
 
-test('eight CPUs complete six laps through a bridge, a jump, a loop and lap-specific events',t=>{
+test('eight CPUs complete six laps through a bridge, a jump and lap-specific events',t=>{
   const track=registerCustomTrack(source('race')), world=createWorld(false,track.id);world.eventLevel=3;
   world.players=Array.from({length:8},(_,index)=>createKart(`cpu-${index}`,`CPU ${index}`,COLORS[index]!,index,track.id));
-  startRace(world);let reachedFourth=false,loopSeen=false,jumpSeen=false;const stages=new Set<number>();
+  startRace(world);let reachedFourth=false,jumpSeen=false;const stages=new Set<number>();
   for(let tick=0;tick<30*500 && world.phase!=='finished';tick++){
     stepWorld(world,new Map(world.players.map(kart=>[kart.id,autopilot(kart,tick,true)])),1/30);
     if(world.players.some(kart=>kart.lap===3 && !kart.finished))reachedFourth=true;
-    loopSeen ||= world.players.some(kart=>!!kart.loopId);jumpSeen ||= world.players.some(kart=>kart.airborne);
+    jumpSeen ||= world.players.some(kart=>kart.airborne);
     stages.add(world.eventStage);
   }
-  t.diagnostic(JSON.stringify({raceTime:world.raceTime,phase:world.phase,laps:world.players.map(k=>k.lap),loopSeen,jumpSeen}));
-  assert.ok(reachedFourth);assert.ok(loopSeen);assert.ok(jumpSeen);
+  t.diagnostic(JSON.stringify({raceTime:world.raceTime,phase:world.phase,laps:world.players.map(k=>k.lap),jumpSeen}));
+  assert.ok(reachedFourth);assert.ok(jumpSeen);
   assert.equal(world.phase,'finished');assert.equal(world.players.filter(kart=>kart.finished&&kart.lap===6).length,8);
   assert.ok(stages.has(4)&&stages.has(5));
 });

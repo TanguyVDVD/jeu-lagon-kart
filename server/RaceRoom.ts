@@ -444,7 +444,7 @@ export class RaceRoom extends Room {
     this.world.eventStage = source.eventStage ?? 0;
     for (const kart of this.world.players) {
       kart.x = point.x; kart.z = point.z; kart.angle = point.angle;
-      kart.elevation = trackElevation(source.progress, track.id); kart.verticalVelocity = 0; kart.airborne = false; kart.loopId = '';
+      kart.elevation = trackElevation(source.progress, track.id); kart.verticalVelocity = 0; kart.airborne = false;
       kart.speed = 0; kart.progress = source.progress; kart.routeProgress = source.progress; kart.respawnProgress = source.progress;
       kart.nextCheckpoint = track.checkpoints.findIndex(checkpoint => checkpoint.progress > source.progress);
       if (kart.nextCheckpoint < 0) kart.nextCheckpoint = 0;

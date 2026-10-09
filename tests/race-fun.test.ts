@@ -31,7 +31,7 @@ function laneInput(kart: Kart, offset = 0) {
   return { ...neutralInput(), throttle: 1, steer: Math.max(-1, Math.min(1, delta * 2.5)) };
 }
 function comboCircuit() {
-  return registerTrackDefinition(makeTrack({ ...getTrack(), id: 'custom-combo-budget-v1', width: 28, zones: [], loops: [],
+  return registerTrackDefinition(makeTrack({ ...getTrack(), id: 'custom-combo-budget-v1', width: 28, zones: [], relief: undefined,
     anchors: Array.from({ length: 8 }, (_, index) => [Math.sin(index * Math.PI / 4) * 500, Math.cos(index * Math.PI / 4) * 500]),
     elevations: Array.from({ length: 6 }, (_, index) => ({ kind: 'jump', start: .108 + index * .16,
       end: .12 + index * .16, height: 1.6, approach: 0, launchSpeed: 6.3 })) }), 'custom-combo-budget', 1);
@@ -102,23 +102,6 @@ test('combos: a real ramp jump followed by an aligned landing earns a small two-
   resetKart(kart); place(kart, ramp.end - 12, 30);
   for (let tick = 0; tick < 160; tick++) stepWorld(world, new Map([[kart.id, getCpuInput(kart, tick, world)]]), dt);
   assert.equal(kart.fun!.feedbackSeq, sequence, 'resetting and replaying the same ramp cannot farm another chain');
-});
-
-test('combos: clean loop traversal is credited, reverse entry and parking are not', () => {
-  const world = race('sky'), kart = world.players[0]!, loop = getTrack('sky').loops[0]!;
-  place(kart, loop.start - 5, 28);
-  let inverted = false, completed = false;
-  for (let tick = 0; tick < 900 && !completed; tick++) {
-    stepWorld(world, new Map([[kart.id, getCpuInput(kart, tick, world)]]), dt);
-    inverted ||= kart.elevation > loop.height * .9;
-    completed = kart.progress > loop.end + 1 && !kart.loopId;
-  }
-  assert.ok(inverted && completed);
-  assert.equal(kart.fun!.chain, 1, 'a loop is one action, not a boost farm');
-  const backwards = race('sky'), reverseKart = backwards.players[0]!;
-  place(reverseKart, loop.end + 1, -9);
-  for (let tick = 0; tick < 90; tick++) stepWorld(backwards, new Map([[reverseKart.id, { ...neutralInput(), throttle: -1 }]]), dt);
-  assert.equal(reverseKart.fun!.chain, 0);
 });
 
 test('combos: a real charged drift is one action; repeating it cannot stack the chain', () => {
@@ -200,7 +183,7 @@ test('recovery: waiting, reversing, resets and the initial grid cannot manufactu
 test('relays: a real allied draft and pass reward both pilots without an extra button', () => {
   const world = race('lagon', 2); world.teamMode = true;
   const follower = world.players[0]!, leader = world.players[1]!; follower.team = leader.team = 0;
-  place(follower, 28, 25); place(leader, 42, 25);
+  place(follower, 58, 25); place(leader, 72, 25);
   let drafted = false, relayed = false;
   for (let tick = 0; tick < 240 && !relayed; tick++) {
     const leadInput = laneInput(leader); if (leader.speed > 25) leadInput.throttle = 0;

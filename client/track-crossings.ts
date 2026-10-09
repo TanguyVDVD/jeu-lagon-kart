@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { getTrack, trackElevation, trackPoint, type TrackDefinition } from '../shared/track';
 import { BRIDGE_RAIL_CENTER_Y, BRIDGE_RAIL_THICKNESS, BRIDGE_SHOULDER, TRACK_SHOULDER } from '../shared/obstacle-heights';
-import { trackLoopAt } from '../shared/track-loop';
 import { automaticTrackElevation, CROSSING_DECK_THICKNESS } from '../shared/track-crossings';
 
 const palette = new Map<string, THREE.MeshStandardMaterial>();
@@ -83,7 +82,7 @@ export function buildCrossingStructures(track: TrackDefinition): THREE.Group {
     const start = samples[index]!, end = samples[index + 1]!, middle = (start + end) / 2;
     while (plateauIndex < plateaus.length && plateaus[plateauIndex]![1] < middle) plateauIndex++;
     const onPlateau = plateauIndex < plateaus.length && plateaus[plateauIndex]![0] <= middle;
-    if ((!onPlateau && automaticTrackElevation(middle, track) < .01) || trackLoopAt(middle, track.id)) continue;
+    if (!onPlateau && automaticTrackElevation(middle, track) < .01) continue;
     const a = point(start), b = point(end), length = Math.hypot(b.x - a.x, b.z - a.z);
     const thickness = CROSSING_DECK_THICKNESS;
     const deck = add('crossing-deck', concrete, (a.x + b.x) / 2, (a.y + b.y) / 2 - thickness / 2,

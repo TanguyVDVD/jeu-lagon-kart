@@ -7,12 +7,12 @@ import { chromium, type BrowserContext, type Page } from 'playwright';
 const origin = (process.env.BASE_URL ?? 'https://miles-blades-tulsa-citizens.trycloudflare.com').replace(/\/$/, '');
 const output = process.env.REPORT_DIR ?? `${process.cwd()}/docs/editor-features/public`;
 const statePath = process.env.STATE_PATH ?? '/tmp/lagon-public-editor-presence-check-state.json';
-const title = 'L’atelier des loopings';
-const ownerName = 'Atelier Loopings', guestName = 'Invité Atelier';
+const title = 'L’atelier des reliefs';
+const ownerName = 'Atelier Reliefs', guestName = 'Invité Atelier';
 await mkdir(output, { recursive: true });
 interface SavedTrack { id: string; revision: number; runtimeId?: string; authorId: string; draft: {
   name: string; lapCount?: number; elevations?: Array<{kind: string;start:number;end:number;height:number}>;
-  loops?: Array<{start:number;end:number;height:number;lateralSpread:number}>;events?: Array<{lap:number;kind:string;start:number;end:number}>;
+  events?: Array<{lap:number;kind:string;start:number;end:number}>;
 } }
 interface Presence { connected: number; searchingRanked: number; players: Array<{id:string;name:string;status:string}> }
 interface Player {id:string;name:string;x:number;z:number;speed:number;ready:boolean;spectator:boolean;connected:boolean}
@@ -88,8 +88,8 @@ try{
   if(existing){await host.locator(`[data-action="open"][data-id="${existing.id}"]`).click();}
   else{
     await field(host,'#editor-name',title);await field(host,'#editor-laps','6');await host.locator('#editor-theme').selectOption('forest');
-    await section(host,'#editor-relief-options');await host.locator('#editor-add-bridge').click();await host.locator('#editor-add-jump').click();await host.locator('#editor-add-loop').click();
-    await field(host,feature('elevations',0,'height'),'5');await field(host,feature('loops',0,'start'),'56');await field(host,feature('loops',0,'height'),'24');await field(host,feature('loops',0,'lateralSpread'),'20');
+    await section(host,'#editor-relief-options');await host.locator('#editor-add-bridge').click();await host.locator('#editor-add-jump').click();
+    await field(host,feature('elevations',0,'height'),'5');
     await section(host,'#editor-event-options');
     for(const [index,lap,kind,start,duration] of [[0,2,'rain',30,6],[1,4,'boost',26,2]] as const){
       await host.locator('#editor-add-event').click();await field(host,feature('events',index,'lap'),String(lap));await host.locator(feature('events',index,'kind')).selectOption(kind);
@@ -103,11 +103,11 @@ try{
   }
   const saved=(await request<{tracks:SavedTrack[]}>('/api/tracks')).tracks.find(track=>track.draft.name===title);assert.ok(saved);assert.equal(saved.authorId,ownerId);
   journal.trackId=saved.id;await checkpoint();const runtimeId=saved.runtimeId??`${saved.id}-v${saved.revision}`;
-  assert.equal(saved.draft.lapCount,6);assert.deepEqual(saved.draft.elevations?.map(item=>item.kind),['bridge','jump']);assert.equal(saved.draft.loops?.length,1);
+  assert.equal(saved.draft.lapCount,6);assert.deepEqual(saved.draft.elevations?.map(item=>item.kind),['bridge','jump']);
   assert.deepEqual(saved.draft.events?.map(event=>[event.lap,event.kind]),[[2,'rain'],[4,'boost']]);assert.deepEqual((await request<{track:SavedTrack}>('/api/tracks/'+runtimeId)).track,saved);
   evidence.published={id:saved.id,runtimeId,revision:saved.revision,name:title,createdThisRun:!existing,draft:saved.draft};
   await host.locator('#editor-canvas').scrollIntoViewIfNeeded();await capture(host,'public-editor-modules.png');
-  mark('Un seul exemple utile publié par UI : six tours, pont, tremplin, looping, pluie au tour2 et turbo au tour4 ; relecture API identique.');
+  mark('Un seul exemple utile publié par UI : six tours, pont, tremplin, pluie au tour2 et turbo au tour4 ; relecture API identique.');
   await host.locator('#editor-close').click();
   await refreshHomeTracks(guest);await selectHomeTrack(guest,runtimeId,title);
   await selectHomeTrack(host,runtimeId,title);await (await homeControl(host, '#create-button')).click();await until(async()=>(await state(host!)).phase==='lobby','salon public de démonstration');

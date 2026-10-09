@@ -1,4 +1,4 @@
-import { getTrack, trackElevation, type TrackDefinition } from './track.js';
+import { getTrack, trackElevation, reliefElevation, type TrackDefinition } from './track.js';
 import { automaticTrackElevation } from './track-crossings.js';
 
 /** Metres above the local road; shared with the procedural renderers. */
@@ -54,7 +54,7 @@ export function driveableGroundHeight(position: { progress: number; distance: nu
   // must not lift it onto that deck. One metre exceeds the steepest permitted
   // rise per bounded physics step, including the compressed branch routes.
   return height <= elevation + 1 && position.distance <= position.width / 2 + trackBoundaryShoulder(position.progress, trackId, position.branchId) + .02
-    ? height : 0;
+    ? height : reliefElevation(position.progress, getTrack(trackId));
 }
 export function trackBlockerHeight(trackId: string): number {
   const theme = getTrack(trackId).theme;

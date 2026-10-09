@@ -145,6 +145,8 @@ test('a newly closed road resets to the same validated gate on its open detour w
     const detour = getTrackEvent(track.id, 1, 3).branches.find(branch => branch.kind === 'detour')!;
     const index = track.checkpoints.findIndex((checkpoint, index) => index > 0 &&
       checkpoint.progress > detour.start && checkpoint.progress < detour.end &&
+      // Past the junction: where both roads still overlap, the original gate already serves the detour.
+      eventCheckpointGates(track.id, index, 1, 3).some(gate => gate.branchId === detour.id && Math.hypot(gate.x - checkpoint.x, gate.z - checkpoint.z) > 3) &&
       !nearestDriveableTrack(checkpoint.x + Math.sin(checkpoint.angle) * 2, checkpoint.z + Math.cos(checkpoint.angle) * 2, track.id, 1, 3).branchId);
     assert.ok(index > 0, track.id + ': a main-road gate lies inside the closure sector');
     const main = track.checkpoints[index]!, kart = createKart('late', 'Retardataire', COLORS[0]!, 0, track.id);

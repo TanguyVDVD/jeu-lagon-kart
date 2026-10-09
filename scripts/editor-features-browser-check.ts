@@ -49,21 +49,21 @@ try {
   const html = await fetch(origin).then(response => response.text()); evidence.clientAssets = [...html.matchAll(/(?:src|href)="([^"]*assets[^"]+)"/g)].map(match => match[1]);
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
   const host = await desktop.newPage(); await open(host); await (await homeControl(host, '#name-input')).fill('Atelier reliefs'); await (await homeControl(host, '#track-editor-button')).click();
-  await field(host, '#editor-name', 'Les six tours du looping'); await save(host);
-  const original = (await allTracks()).find(track => track.draft.name === 'Les six tours du looping'); assert.ok(original);
-  assert.equal(original.draft.lapCount, undefined); assert.equal(original.draft.loops, undefined); assert.equal(original.draft.events, undefined);
+  await field(host, '#editor-name', 'Les six tours du relief'); await save(host);
+  const original = (await allTracks()).find(track => track.draft.name === 'Les six tours du relief'); assert.ok(original);
+  assert.equal(original.draft.lapCount, undefined); assert.equal(original.draft.events, undefined);
   record('Ancien format : ouvrir et sauvegarder ne rajoute aucune option facultative au circuit.');
   await field(host, '#editor-laps', '6');
   await section(host, '#editor-relief-options');
-  await host.locator('#editor-add-bridge').click(); await host.locator('#editor-add-jump').click(); await host.locator('#editor-add-loop').click();
+  await host.locator('#editor-add-bridge').click(); await host.locator('#editor-add-jump').click(); await host.locator('#editor-add-jump').click();
   await field(host, feature('elevations', 0, 'start'), '25');
-  await field(host, feature('loops', 0, 'start'), '3');
+  await field(host, feature('elevations', 2, 'start'), '3');
   assert.equal(await host.locator('[data-feature-marker="elevations-0"]').count(), 1);
-  assert.equal(await host.locator('[data-feature-marker="loops-0"]').count(), 1);
-  await host.locator('[data-action="remove-feature"][data-group="loops"][data-index="0"]').click();
-  assert.equal(await host.locator('[data-feature-marker="loops-0"]').count(), 0);
-  await host.locator('#editor-undo').click(); assert.equal(await host.locator('[data-feature-marker="loops-0"]').count(), 1);
-  await host.locator('#editor-redo').click(); assert.equal(await host.locator('[data-feature-marker="loops-0"]').count(), 0);
+  assert.equal(await host.locator('[data-feature-marker="elevations-2"]').count(), 1);
+  await host.locator('[data-action="remove-feature"][data-group="elevations"][data-index="2"]').click();
+  assert.equal(await host.locator('[data-feature-marker="elevations-2"]').count(), 0);
+  await host.locator('#editor-undo').click(); assert.equal(await host.locator('[data-feature-marker="elevations-2"]').count(), 1);
+  await host.locator('#editor-redo').click(); assert.equal(await host.locator('[data-feature-marker="elevations-2"]').count(), 0);
   await host.locator('#editor-undo').click();
   await section(host, '#editor-event-options');
   for (const [index, lap, kind] of [[0, 1, 'rain'], [1, 4, 'boost'], [2, 5, 'clear']] as const) {
@@ -74,20 +74,20 @@ try {
   await field(host, '#editor-laps', '3'); assert.equal(await host.locator('#editor-save').isDisabled(), true);
   assert.match(await host.locator('#editor-status').innerText(), /tour|événement/i);
   await field(host, '#editor-laps', '6'); assert.equal(await host.locator('#editor-save').isEnabled(), true);
-  record('Six tours, pont, tremplin, looping et événements aux tours1/4/5 ajoutés par UI ; suppression/annuler/rétablir et validation de tour hors course.');
+  record('Six tours, pont, tremplin et événements aux tours1/4/5 ajoutés par UI ; suppression/annuler/rétablir et validation de tour hors course.');
   await host.locator('#editor-close').click(); await host.locator('#track-editor-dialog').waitFor({ state: 'hidden' });
   await host.reload({ waitUntil: 'domcontentloaded' }); await (await homeControl(host, '#track-editor-button')).click();
   assert.equal(await host.locator('#editor-laps').inputValue(), '6');
   await section(host, '#editor-relief-options'); await section(host, '#editor-event-options');
-  assert.equal(await host.locator('[data-feature-card^="elevations-"]').count(), 2); assert.equal(await host.locator('[data-feature-card^="loops-"]').count(), 1); assert.equal(await host.locator('[data-feature-card^="events-"]').count(), 3);
+  assert.equal(await host.locator('[data-feature-card^="elevations-"]').count(), 2); assert.equal(await host.locator('[data-feature-card^="events-"]').count(), 3);
   await save(host);
   const saved = (await allTracks()).find(track => track.id === original.id)!;
-  assert.equal(saved.revision, 2); assert.equal(saved.draft.lapCount, 6); assert.equal(saved.draft.elevations?.length, 2); assert.equal(saved.draft.loops?.length, 1);
+  assert.equal(saved.revision, 2); assert.equal(saved.draft.lapCount, 6); assert.equal(saved.draft.elevations?.length, 2);
   assert.deepEqual(saved.draft.events?.map(event => [event.lap, event.kind]), [[1, 'rain'], [4, 'boost'], [5, 'clear']]);
   const disk = JSON.parse(await readFile(join(directory, 'tracks', `${saved.id}-v2.json`), 'utf8')) as StoredCustomTrack;
   assert.deepEqual(disk.draft, saved.draft); evidence.saved = { id: saved.id, revision: saved.revision, draft: saved.draft };
   record('Brouillon rechargé intact ; options relues dans l’API et dans le fichier de révision du répertoire data privé.');
-  await host.locator('[data-feature-card="loops-0"]').scrollIntoViewIfNeeded(); await capture(host, 'editor-features-desktop.png');
+  await host.locator('[data-feature-card="elevations-1"]').scrollIntoViewIfNeeded(); await capture(host, 'editor-features-desktop.png');
   await host.locator('#editor-event-options > summary').scrollIntoViewIfNeeded(); await capture(host, 'editor-events-desktop.png');
   const catalogueBeforeTrial = await allTracks();
   await host.locator('#editor-try').click(); await until(async () => (await state(host)).world?.phase === 'racing', 'Essai du circuit enrichi');
@@ -112,10 +112,10 @@ try {
   await guest.locator(`[data-action="copy"][data-id="${saved.id}"]`).click();
   await section(guest, '#editor-relief-options'); await section(guest, '#editor-event-options');
   assert.equal(await guest.locator('#editor-laps').inputValue(), '6');
-  assert.equal(await guest.locator('[data-feature-card^="loops-"]').count(), 1); assert.equal(await guest.locator('[data-feature-card^="events-"]').count(), 3);
+  assert.equal(await guest.locator('[data-feature-card^="events-"]').count(), 3);
   await field(guest, '#editor-name', 'Six tours sur mon mobile');
-  await field(guest, feature('loops', 0, 'height'), '30');
-  await guest.locator('[data-feature-card="loops-0"]').scrollIntoViewIfNeeded(); await capture(guest, 'editor-features-mobile-320.png');
+  await field(guest, feature('elevations', 0, 'height'), '6');
+  await guest.locator('[data-feature-card="elevations-0"]').scrollIntoViewIfNeeded(); await capture(guest, 'editor-features-mobile-320.png');
   assert.equal(await guest.locator('#track-editor-dialog').evaluate(node => node.scrollWidth > node.clientWidth + 1), false);
   for (const control of await guest.locator('#editor-relief-options button, #editor-relief-options input, #editor-event-options button, #editor-event-options input, #editor-event-options select').all()) {
     if (!await control.isVisible()) continue; const box = await control.boundingBox(); assert.ok(box && box.height >= 44, 'Contrôle mobile inférieur à44px');
@@ -123,7 +123,7 @@ try {
   // Use a real touch on a normal control as well as mobile form entry.
   await guest.locator('#editor-add-event').tap(); await guest.locator('[data-action="remove-feature"][data-group="events"][data-index="3"]').tap();
   await save(guest); const duplicate = (await allTracks()).find(track => track.draft.name === 'Six tours sur mon mobile'); assert.ok(duplicate);
-  assert.notEqual(duplicate.id, saved.id); assert.equal(duplicate.draft.loops?.[0]?.height, 30); assert.equal((await allTracks()).find(track => track.id === saved.id)?.draft.loops?.[0]?.height, 28);
+  assert.notEqual(duplicate.id, saved.id); assert.equal(duplicate.draft.elevations?.[0]?.height, 6); assert.notEqual((await allTracks()).find(track => track.id === saved.id)?.draft.elevations?.[0]?.height, 6);
   evidence.duplicate = { id: duplicate.id, lapCount: duplicate.draft.lapCount };
   record('Mobile320 : duplication d’un autre joueur, tous les modules conservés, hauteur modifiée indépendamment et sauvegarde ; cibles≥44px sans débordement.');
 

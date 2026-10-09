@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createKart, createWorld, neutralInput, stepKart, stepWorld, type Kart } from '../shared/game.js';
-import { getTrack, trackElevation, trackPoint, nearestTrack } from '../shared/track.js';
+import { getTrack, reliefElevation, trackElevation, trackPoint, nearestTrack } from '../shared/track.js';
 import { constrainTrackEvent, getTrackEvent, nearestDriveableTrack, trackBoundaryGap } from '../shared/track-events.js';
 import { BRIDGE_RAIL_TOP, ROAD_RAIL_TOP, trackBoundaryShoulder, driveableGroundHeight } from '../shared/obstacle-heights.js';
 
@@ -20,6 +20,10 @@ function railFixture(bridge = false) {
     return { kart, point, limit, side, base: trackElevation(progress, trackId), track };
   }
   throw new Error('No unobstructed rail fixture');
+}
+/** Natural ground under the kart: hills, without any bridge deck. */
+function terrain(kart: Kart) {
+  return reliefElevation(nearestDriveableTrack(kart.x, kart.z, kart.trackId, kart.eventStage, kart.eventLevel).progress, getTrack(kart.trackId));
 }
 function clearance(kart: Kart) {
   const near = nearestDriveableTrack(kart.x, kart.z, kart.trackId, kart.eventStage, kart.eventLevel);
@@ -42,6 +46,7 @@ test('classic races keep their rails closed, and a shortcut opens its passage on
     Object.assign(kart, { x: gate.point.x + Math.cos(gate.point.angle) * gate.side * (gate.limit - .2),
       z: gate.point.z - Math.sin(gate.point.angle) * gate.side * (gate.limit - .2), angle: gate.point.angle + Math.PI / 2 * gate.side,
       speed: 10, eventStage: stage, eventLevel: level });
+    kart.elevation = trackElevation(nearestTrack(kart.x, kart.z, track.id).progress, track.id);
     stepKart(kart, neutralInput(), .1);
     const distance = nearestTrack(kart.x, kart.z, track.id).distance;
     if (open) assert.ok(distance > gate.limit + .2, 'an open branch can actually be entered through its visible passage');
@@ -64,7 +69,7 @@ test('rail collision checks height at the crossing, including a fast downward se
   const { kart, point, side, limit } = railFixture();
   kart.x = point.x + Math.cos(point.angle) * side * (limit - .8);
   kart.z = point.z - Math.sin(point.angle) * side * (limit - .8);
-  Object.assign(kart, { elevation: 1, verticalVelocity: -12, airborne: true });
+  Object.assign(kart, { elevation: kart.elevation + 1, verticalVelocity: -12, airborne: true });
   stepKart(kart, neutralInput(), .1);
   assert.ok(clearance(kart) <= .01, 'being high at frame start does not grant passage after descending into the rail');
 });
@@ -81,16 +86,16 @@ test('ground contact blocks the outward component while retaining tangential sli
 });
 
 test('clearing a rail allows an exterior landing without teleportation; low return is blocked and jumping back succeeds', () => {
-  const { kart, point, side } = railFixture();
-  Object.assign(kart, { elevation: 2.5, verticalVelocity: 0, airborne: true });
+  const { kart, point, side, base } = railFixture();
+  Object.assign(kart, { elevation: base + 2.5, verticalVelocity: 0, airborne: true });
   stepKart(kart, neutralInput(), .1); assert.ok(clearance(kart) > .2);
   for (let tick = 0; tick < 25; tick++) stepKart(kart, neutralInput(), 1 / 30);
-  assert.equal(kart.airborne, false); assert.equal(kart.elevation, 0);
+  assert.equal(kart.airborne, false); assert.equal(kart.elevation, terrain(kart));
   assert.ok(clearance(kart) > 2, 'landing outside must not snap horizontally through the wall');
   kart.angle = point.angle - Math.PI / 2 * side; kart.speed = 10;
   for (let tick = 0; tick < 60; tick++) stepKart(kart, { ...neutralInput(), throttle: 1 }, 1 / 30);
   assert.ok(clearance(kart) >= -.01, 'ground return cannot cross the closed rail');
-  Object.assign(kart, { elevation: 2.5, verticalVelocity: 0, airborne: true, speed: 10 });
+  Object.assign(kart, { elevation: kart.elevation + 2.5, verticalVelocity: 0, airborne: true, speed: 10 });
   for (let tick = 0; tick < 10; tick++) stepKart(kart, { ...neutralInput(), throttle: 1 }, 1 / 30);
   assert.ok(clearance(kart) < -.2, 'a second real jump can re-enter');
 });
@@ -100,10 +105,10 @@ test('leaving a bridge above its rail falls to exterior terrain rather than hove
   Object.assign(kart, { elevation: base + BRIDGE_RAIL_TOP + .6, verticalVelocity: 0, airborne: true });
   stepKart(kart, neutralInput(), .1); assert.ok(clearance(kart) > .2);
   for (let tick = 0; tick < 75; tick++) stepKart(kart, { ...neutralInput(), throttle: 1 }, 1 / 30);
-  assert.equal(kart.airborne, false); assert.equal(kart.elevation, 0);
+  assert.equal(kart.airborne, false); assert.equal(kart.elevation, terrain(kart));
   assert.ok(clearance(kart) > 1);
   const near = nearestDriveableTrack(kart.x, kart.z, kart.trackId);
-  assert.equal(driveableGroundHeight(near, kart.trackId), 0);
+  assert.equal(driveableGroundHeight(near, kart.trackId), terrain(kart));
 });
 
 test('a real ramp launches a grounded kart over its side rail and lands it outside without injected flight state', () => {
@@ -135,25 +140,25 @@ test('a real ramp launches a grounded kart over its side rail and lands it outsi
     }
     if (launched && !kart.airborne) {
       landedOutside = clearance(kart) > 1;
-      assert.equal(kart.elevation, 0); assert.equal(kart.verticalVelocity, 0);
+      assert.equal(kart.elevation, terrain(kart)); assert.equal(kart.verticalVelocity, 0);
       break;
     }
   }
   assert.ok(launched, 'stepKart detects the actual ramp lip');
-  assert.ok(peak > ramp.height + .5);
+  assert.ok(peak > ramp.height + reliefElevation(ramp.end, track) + .5);
   assert.ok(crossedRail, 'flight clears the lateral rail');
   assert.ok(landedOutside, 'the kart lands on the exterior terrain without horizontal teleportation');
 });
 
 test('a ground-level kart entering below a raised bridge stays below the deck', () => {
   const { kart, point, side, limit, base } = railFixture(true);
-  assert.ok(base > 3);
   Object.assign(kart, { x: point.x + Math.cos(point.angle) * side * (limit + .2),
-    z: point.z - Math.sin(point.angle) * side * (limit + .2), angle: point.angle - Math.PI / 2 * side,
-    elevation: 0, speed: 10, airborne: false });
+    z: point.z - Math.sin(point.angle) * side * (limit + .2), angle: point.angle - Math.PI / 2 * side, speed: 10, airborne: false });
+  kart.elevation = terrain(kart);
+  assert.ok(base > kart.elevation + 3);
   for (let tick = 0; tick < 12; tick++) {
     stepKart(kart, { ...neutralInput(), throttle: 1 }, 1 / 30);
-    assert.equal(kart.elevation, 0, 'entering below the bridge cannot act as an elevator');
+    assert.equal(kart.elevation, terrain(kart), 'entering below the bridge cannot act as an elevator');
   }
   assert.ok(clearance(kart) < 0); assert.equal(kart.airborne, false);
 });
@@ -183,6 +188,6 @@ test('airborne shortcuts still require all ordered checkpoint gates and reset re
   stepWorld(world, new Map([[kart.id, neutralInput()]]), 1 / 30);
   assert.equal(kart.nextCheckpoint, 1); assert.equal(kart.lap, 0);
   stepWorld(world, new Map([[kart.id, { ...neutralInput(), reset: true }]]), 1 / 30);
-  assert.equal(kart.elevation, 0); assert.equal(kart.airborne, false);
+  assert.equal(kart.elevation, trackElevation(kart.routeProgress!, kart.trackId)); assert.equal(kart.airborne, false);
   assert.equal(kart.nextCheckpoint, 1); assert.equal(kart.lap, 0); assert.ok(clearance(kart) <= 0);
 });

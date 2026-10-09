@@ -12,10 +12,9 @@ export interface CustomTrackZone {
 export interface CustomTrackElevation {
   kind: 'bridge' | 'jump'; start: number; end: number; height: number; approach: number; launchSpeed?: number;
 }
-export interface CustomTrackLoop { start: number; end: number; height: number; lateralSpread: number }
 export interface CustomTrackLapEvent { lap: number; kind: TrackLapEventKind; start: number; end: number }
 export type CustomTrackInteraction = Omit<TrackInteraction, 'id' | 'elevationId'>;
-export interface TrackWorkshopSelection { group: 'track' | 'elevations' | 'loops' | 'events' | 'zones' | 'interactions'; index: number }
+export interface TrackWorkshopSelection { group: 'track' | 'elevations' | 'events' | 'zones' | 'interactions'; index: number }
 export const CUSTOM_TRACK_EVENT_KINDS: ReadonlyArray<{id: TrackLapEventKind; label: string}> = [
   {id:'rain',label:'Pluie et flaques'}, {id:'snow',label:'Neige et verglas'}, {id:'ash',label:'Cendres'},
   {id:'storm',label:'Tempête'}, {id:'clear',label:'Éclaircie'}, {id:'boost',label:'Turbo temporaire'},
@@ -23,7 +22,7 @@ export const CUSTOM_TRACK_EVENT_KINDS: ReadonlyArray<{id: TrackLapEventKind; lab
 ];
 export interface CustomTrackDraft {
   name: string; theme: TrackDefinition['theme']; width: number; anchors: Vec2[]; zones: CustomTrackZone[];
-  lapCount?: number; elevations?: CustomTrackElevation[]; loops?: CustomTrackLoop[]; events?: CustomTrackLapEvent[];
+  lapCount?: number; elevations?: CustomTrackElevation[]; events?: CustomTrackLapEvent[];
   interactions?: CustomTrackInteraction[];
 }
 export interface StoredCustomTrack {
@@ -43,7 +42,7 @@ export type SavedCustomTrack = StoredCustomTrack;
 export interface CustomTrackValidation { ok: boolean; errors: string[]; draft?: CustomTrackDraft; track?: TrackDefinition }
 /** Capacity bounds keep untrusted drafts and generated geometry finite; they do not rate the layout. */
 export const CUSTOM_TRACK_LIMITS = { minAnchors: 3, maxAnchors: 128, minWidth: 4, maxWidth: 80,
-  coordinate: 2000, maxZones: 64, maxLaps: MAX_CUSTOM_TRACK_LAPS, maxElevations: 16, maxLoops: 16, maxEvents: 64, maxInteractions: 16, maxHeight: 80 } as const;
+  coordinate: 2000, maxZones: 64, maxLaps: MAX_CUSTOM_TRACK_LAPS, maxElevations: 16, maxEvents: 64, maxInteractions: 16, maxHeight: 80 } as const;
 export const CUSTOM_TRACK_THEMES: ReadonlyArray<{ id: TrackDefinition['theme']; label: string }> = [
   { id: 'tropical', label: 'Île tropicale' }, { id: 'canyon', label: 'Canyon' }, { id: 'ice', label: 'Banquise' },
   { id: 'neon', label: 'Ville néon' }, { id: 'volcano', label: 'Volcan' }, { id: 'forest', label: 'Forêt' },
@@ -71,35 +70,12 @@ export function sampleCustomTrackAnchors(anchors: readonly Vec2[]): Vec2[] {
 const object = (input: unknown): input is Record<string, unknown> => !!input && typeof input === 'object' && !Array.isArray(input);
 const finite = (input: unknown): input is number => typeof input === 'number' && Number.isFinite(input);
 const distance = (a: Vec2, b: Vec2) => Math.hypot(b.x - a.x, b.z - a.z);
-const compiledLoopSelections = new WeakMap<TrackDefinition, number[]>();
-
-/** Overlapping authored modules describe one continuous magnetic ribbon. The
- * source remains editable as authored; duplicate modules do not add coincident
- * meshes, and changing ownership halfway through a loop cannot cut the road. */
-function mergeCustomLoops(loops: readonly CustomTrackLoop[]): Array<CustomTrackLoop & { sources: number[] }> {
-  const ordered = loops.map((loop, index) => ({ ...loop, sources: [index] })).sort((a, b) => a.start - b.start);
-  const merged: Array<CustomTrackLoop & { sources: number[] }> = [];
-  for (const loop of ordered) {
-    const previous = merged.at(-1);
-    if (previous && loop.start <= previous.end + 1e-10) {
-      previous.end = Math.max(previous.end, loop.end);
-      previous.height = Math.max(previous.height, loop.height);
-      previous.lateralSpread = Math.max(previous.lateralSpread, loop.lateralSpread);
-      previous.sources.push(...loop.sources);
-    } else merged.push(loop);
-  }
-  // Retain authored ordering (and therefore existing ids) for disjoint loops.
-  return merged.sort((a, b) => Math.min(...a.sources) - Math.min(...b.sources));
-}
 function build(draft: CustomTrackDraft, id: TrackId): TrackDefinition {
   const theme = TRACKS.find(track => track.theme === draft.theme)!;
-  const loops = mergeCustomLoops(draft.loops ?? []);
   const track = makeTrack({ id, name: draft.name, description: 'Circuit créé par les joueurs. Trois tours, des objets et votre propre tracé.',
     difficulty: 'Intermédiaire', theme: draft.theme, width: draft.width, grip: theme.grip, palette: { ...theme.palette },
     anchors: draft.anchors.map(({x,z}) => [x,z]), zones: draft.zones.map(zone => ({ ...zone })),
-    elevations: draft.elevations?.map(feature=>({...feature})),
-    loops: loops.map(({ start, end, height, lateralSpread }) => ({ start, end, height, lateralSpread })) });
-  compiledLoopSelections.set(track, (draft.loops ?? []).map((_, index) => loops.findIndex(loop => loop.sources.includes(index))));
+    elevations: draft.elevations?.map(feature=>({...feature})) });
   // Absent authored options stay absent: ordinary historical circuits retain
   // their serialized geometry, description and default three-lap behavior.
   if (draft.lapCount !== undefined) {
@@ -128,12 +104,11 @@ export function getTrackWorkshopStart(trackId: string, selection: unknown): {pro
   const group=selection.group as TrackWorkshopSelection['group'];
   if(group==='track')return selection.index===0?{progress:0,end:track.length,label:'Circuit entier · brouillon privé'}:undefined;
   const features=group==='events'?track.lapEvents:group==='elevations'?track.elevations.filter(feature=>!track.interactions?.some(module=>module.elevationId===feature.id))
-    :group==='loops'?track.loops:group==='zones'?track.zones:group==='interactions'?track.interactions:undefined;
-  const featureIndex=group==='loops'?compiledLoopSelections.get(track)?.[selection.index as number]??selection.index as number:selection.index as number;
-  const feature=features?.[featureIndex]; if (!feature) return;
+    :group==='zones'?track.zones:group==='interactions'?track.interactions:undefined;
+  const feature=features?.[selection.index as number]; if (!feature) return;
   const begin='trigger' in feature?feature.trigger:feature.start;
   const progress=((begin-Math.min(35,track.length*.1))%track.length+track.length)%track.length;
-  const label=group==='elevations'?'Relief':group==='loops'?'Looping':group==='events'?'Événement':group==='zones'?'Zone':'Interrupteur';
+  const label=group==='elevations'?'Relief':group==='events'?'Événement':group==='zones'?'Zone':'Interrupteur';
   return {progress,end:feature.end,label:`${label} ${(selection.index as number)+1}`,...('lap' in feature?{eventStage:feature.lap-1}:{})};
 }
 
@@ -184,17 +159,6 @@ export function validateCustomTrackDraft(input: unknown): CustomTrackValidation 
         ...(value.launchSpeed === undefined ? {} : {launchSpeed:value.launchSpeed as number})});
     }
   }
-  const loops: CustomTrackLoop[] = [];
-  if (input.loops !== undefined) {
-    if (!Array.isArray(input.loops) || input.loops.length > CUSTOM_TRACK_LIMITS.maxLoops) errors.push(`Ajoutez au maximum ${CUSTOM_TRACK_LIMITS.maxLoops} loopings.`);
-    else for (const [index,value] of input.loops.entries()) {
-      if (!object(value) || !interval(value) || !finite(value.height) || value.height <= 0 || value.height > CUSTOM_TRACK_LIMITS.maxHeight ||
-        !finite(value.lateralSpread) || value.lateralSpread < 0 || value.lateralSpread > 80) {
-        errors.push(`Looping ${index+1} : gardez une hauteur positive de 80 m maximum, un écart latéral de 0 à 80 m et une position entre 0 % et 100 %.`); continue;
-      }
-      loops.push({start:value.start as number,end:value.end as number,height:value.height,lateralSpread:value.lateralSpread});
-    }
-  }
   const lapEvents: CustomTrackLapEvent[] = [];
   if (input.events !== undefined) {
     if (!Array.isArray(input.events) || input.events.length > CUSTOM_TRACK_LIMITS.maxEvents) errors.push(`Ajoutez au maximum ${CUSTOM_TRACK_LIMITS.maxEvents} événements.`);
@@ -222,7 +186,7 @@ export function validateCustomTrackDraft(input: unknown): CustomTrackValidation 
   if (errors.length) return { ok: false, errors };
   const draft: CustomTrackDraft = { name, theme: input.theme as CustomTrackDraft['theme'], width: input.width as number, anchors, zones,
     ...(input.lapCount === undefined ? {} : {lapCount:lapCount as number}),
-    ...(input.elevations === undefined ? {} : {elevations}), ...(input.loops === undefined ? {} : {loops}),
+    ...(input.elevations === undefined ? {} : {elevations}),
     ...(input.events === undefined ? {} : {events:lapEvents}), ...(input.interactions===undefined?{}:{interactions}) };
   const track = build(draft, 'custom-preview-v1');
   // Coincident local anchors and crossings are intentional creative choices. Keep

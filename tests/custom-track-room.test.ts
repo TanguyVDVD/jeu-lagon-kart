@@ -259,7 +259,6 @@ test('custom track versions travel through live rooms and remain usable by saved
   await t.test('advanced modules, six-lap rules and scheduled weather hydrate identically over Colyseus', async () => {
     const advanced=structuredClone(trackDraft);advanced.name='Six tours et reliefs';advanced.lapCount=6;
     advanced.elevations=[{kind:'bridge',start:.1,end:.24,height:5,approach:25},{kind:'jump',start:.4,end:.42,height:2,approach:0,launchSpeed:7}];
-    advanced.loops=[{start:.56,end:.65,height:24,lateralSpread:20}];
     advanced.events=[{lap:1,kind:'rain',start:.3,end:.4},{lap:5,kind:'boost',start:.7,end:.75}];
     const publication=await request('/api/tracks','POST',{draft:advanced},author.token);assert.equal(publication.status,201);
     const definition=publication.data.track as StoredCustomTrack,id=customTrackRuntimeId(definition);
@@ -270,7 +269,7 @@ test('custom track versions travel through live rooms and remain usable by saved
       assert.deepEqual(peer.latest!.tracks,[definition]);
       const compiled=compileCustomTrack(peer.latest!.tracks![0]!);
       assert.deepEqual(compiled,getTrack(id));assert.equal(compiled.lapCount,6);
-      assert.equal(compiled.elevations.length,2);assert.equal(compiled.loops.length,1);assert.equal(compiled.lapEvents?.length,2);
+      assert.equal(compiled.elevations.length,2);assert.equal(compiled.lapEvents?.length,2);
       peer.room.send('tracksReady',{ids:[id]});peer.room.send('ready',{ready:true});
     }
     await until(()=>a.latest?.world.players.every(player=>player.ready),'advanced peers ready');a.room.send('start');

@@ -15,9 +15,7 @@ test('catalog search matches accented names, themes and real features without ch
   assert.deepEqual(filterTrackCatalog(TRACKS, '  ILE   ALIZES  ', 'all').map(track => track.id), ['lagon']);
   assert.deepEqual(filterTrackCatalog(TRACKS, 'foret sauts', 'all').map(track => track.id), ['forest']);
   assert.deepEqual(filterTrackCatalog(TRACKS, 'ne\u0301on', 'all').map(track => track.id), ['neon']);
-  const looping = filterTrackCatalog(TRACKS, 'looping', 'all');
-  assert.ok(looping.length >= 2);
-  assert.ok(looping.every(track => track.loops.length > 0));
+  assert.deepEqual(filterTrackCatalog(TRACKS, 'looping', 'all'), [], 'loopings were retired from every circuit');
   assert.deepEqual(filterTrackCatalog(TRACKS, 'un nom de circuit inexistant', 'all'), []);
   assert.deepEqual(filterTrackCatalog(TRACKS, ' ', 'all'), TRACKS);
   assert.equal(JSON.stringify(TRACKS), before);

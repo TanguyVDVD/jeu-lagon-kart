@@ -105,14 +105,21 @@ for (const track of TRACKS) test(`${track.id}: a CPU already on an open branch f
 });
 
 test('a CPU pressing a real rail requests only a valid grounded recovery', () => {
-  const track = getTrack('lagon'), branch = getTrackEvent(track.id, 1, 3).branches.find(route => route.kind === 'detour')!;
-  const progress = branch.start - 1, position = trackPoint(progress, track.id);
-  const offset = track.width / 2 + trackBoundaryShoulder(progress, track.id) - .001;
-  const kart = createKart('rail', 'Rail', '#fc735d', 0, track.id);
-  Object.assign(kart, position, { x: position.x - Math.cos(position.angle) * offset,
-    z: position.z + Math.sin(position.angle) * offset, speed: 1, progress,
-    nextCheckpoint: Math.floor(progress / (track.length / track.checkpoints.length)) + 1,
-    eventStage: 1, eventLevel: 3, elevation: trackElevation(progress, track.id) });
+  const track = getTrack('lagon');
+  // A kart stopped against a closed rail whose guided route lies beyond it: the
+  // inside of a bend. The circuit decides where; the driver must ask to recover there.
+  const stopped = (progress: number, side: number) => {
+    const position = trackPoint(progress, track.id), offset = side * (track.width / 2 + trackBoundaryShoulder(progress, track.id) - .001);
+    const kart = createKart('rail', 'Rail', '#fc735d', 0, track.id);
+    Object.assign(kart, position, { x: position.x - Math.cos(position.angle) * offset,
+      z: position.z + Math.sin(position.angle) * offset, speed: 1, progress,
+      nextCheckpoint: Math.floor(progress / (track.length / track.checkpoints.length)) + 1,
+      eventStage: 1, eventLevel: 3, elevation: trackElevation(progress, track.id) });
+    return kart;
+  };
+  const kart = Array.from({ length: Math.floor(track.length / 5) }, (_, index) => index * 5 + 20).flatMap(progress => [1, -1].map(side => stopped(progress, side)))
+    .find(candidate => getCpuInput(candidate, 37).reset)!;
+  assert.ok(kart, 'some closed rail of the circuit stands between a stopped kart and its route');
   const before = structuredClone(kart), near = nearestDriveableTrack(kart.x, kart.z, track.id, 1, 3);
   assert.ok(Math.abs(near.distance - near.width / 2 - trackBoundaryShoulder(near.progress, track.id, near.branchId)) < .01);
   const recovery = getCpuInput(kart, 37);

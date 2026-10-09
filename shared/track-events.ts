@@ -24,6 +24,17 @@ export type DriveablePosition = ReturnType<typeof nearestTrack> & {
   width: number; branchId: string; surface: Surface;
 };
 const layouts = new Map<string, { branches: TrackBranch[]; blocker: TrackBlocker }>();
+const branchBounds = new WeakMap<BranchPoint[], { minX: number; maxX: number; minZ: number; maxZ: number }>();
+/** Distance from a position to the rectangle holding a whole branch: zero inside it. */
+function branchReach(route: TrackBranch, x: number, z: number): number {
+  let bounds = branchBounds.get(route.points);
+  if (!bounds) {
+    bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+    for (const point of route.points) { bounds.minX = Math.min(bounds.minX, point.x); bounds.maxX = Math.max(bounds.maxX, point.x); bounds.minZ = Math.min(bounds.minZ, point.z); bounds.maxZ = Math.max(bounds.maxZ, point.z); }
+    branchBounds.set(route.points, bounds);
+  }
+  return Math.hypot(Math.max(bounds.minX - x, 0, x - bounds.maxX), Math.max(bounds.minZ - z, 0, z - bounds.maxZ));
+}
 const events = new Map<string, TrackEventInfo>();
 /** Preview rooms release every derived phase together with their definition. */
 export function clearTrackEventCache(trackId:string):void {
@@ -38,12 +49,34 @@ function branch(trackId: string, start: number, end: number, kind: BranchKind, h
   const chord = Math.hypot(b.x - a.x, b.z - a.z), normal = { x: (b.z - a.z) / chord, z: -(b.x - a.x) / chord };
   const first = { x: a.x + Math.sin(a.angle) * chord * handle, z: a.z + Math.cos(a.angle) * chord * handle };
   const last = { x: b.x - Math.sin(b.angle) * chord * handle, z: b.z - Math.cos(b.angle) * chord * handle };
-  const points = Array.from({ length: 97 }, (_, index) => {
+  return measured(trackId, start, end, kind, width, Array.from({ length: 97 }, (_, index) => {
     const t = index / 96, u = 1 - t, offset = 16 * t * t * u * u * bow;
     return { x: u ** 3 * a.x + 3 * u * u * t * first.x + 3 * u * t * t * last.x + t ** 3 * b.x + normal.x * offset,
       z: u ** 3 * a.z + 3 * u * u * t * first.z + 3 * u * t * t * last.z + t ** 3 * b.z + normal.z * offset,
       progress: 0, angle: b.angle };
-  });
+  }));
+}
+
+/** A lane that leaves the road sideways, runs beside it and returns. Unlike a
+ * chord it follows every bend, so it fits hairpins and esses as well as ovals. */
+function bypass(trackId: string, start: number, end: number, kind: BranchKind, side: number, width: number): TrackBranch {
+  const reach = side * (getTrack(trackId).width / 2 + 15), ease = (t: number) => t * t * (3 - 2 * t);
+  return measured(trackId, start, end, kind, width, Array.from({ length: 97 }, (_, index) => {
+    const t = index / 96, progress = start + (end - start) * t, point = trackPoint(progress, trackId);
+    // The sampled spline turns in small steps. Averaging it gives the lane a
+    // steady curve; both ends stay exactly on the road they join.
+    let x = 0, z = 0;
+    for (let step = -3; step <= 3; step++) { const sample = trackPoint(progress + step * 3, trackId); x += sample.x / 7; z += sample.z / 7; }
+    const smooth = Math.min(1, t / .1, (1 - t) / .1);
+    const before = trackPoint(progress - 10, trackId), after = trackPoint(progress + 10, trackId);
+    const dx = after.x - before.x, dz = after.z - before.z, chord = Math.hypot(dx, dz) || 1;
+    const offset = reach * ease(Math.min(1, t / .4)) * ease(Math.min(1, (1 - t) / .4));
+    return { x: point.x + (x - point.x) * smooth + dz / chord * offset, z: point.z + (z - point.z) * smooth - dx / chord * offset, progress: 0, angle: point.angle };
+  }));
+}
+
+function measured(trackId: string, start: number, end: number, kind: BranchKind, width: number, points: BranchPoint[]): TrackBranch {
+  const b = points[points.length - 1]!;
   let length = 0, maximumCurvature = 0;
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]!, b = points[i + 1]!;
@@ -55,7 +88,19 @@ function branch(trackId: string, start: number, end: number, kind: BranchKind, h
       maximumCurvature = Math.max(maximumCurvature, 2 * Math.abs((b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x)) / (ab * bc * ac));
     }
   }
-  for (const point of points) point.progress = start + point.progress / length * (end - start);
+  // Beside the road a branch shares its coordinate, and so its height on a hill:
+  // where both ribbons overlap they form one surface. Away from it the branch
+  // spreads the rest of the sector evenly over its own length.
+  const overlap = getTrack(trackId).width / 2 + width / 2 + 4;
+  let previous = start;
+  points.forEach((point, index) => {
+    const even = start + point.progress / length * (end - start), near = nearestTrack(point.x, point.z, trackId);
+    const blend = near.progress < start - 1 || near.progress > end + 1 ? 0 : 1 - Math.max(0, Math.min(1, (near.distance - overlap) / 30));
+    const weight = blend * blend * (3 - 2 * blend);
+    point.progress = index === 0 ? start : index === points.length - 1 ? end
+      : Math.min(end - (points.length - 1 - index) * 1e-6, Math.max(previous + 1e-6, even + (near.progress - even) * weight));
+    previous = point.progress;
+  });
   return { id: trackId + '-' + kind, name: kind === 'detour' ? 'Déviation large' : kind === 'technical' ? 'Voie turbo' : 'Raccourci',
     kind, start, end, width, length, minTurnRadius: 1 / maximumCurvature, points, open: true };
 }
@@ -73,23 +118,63 @@ function layout(trackId: string) {
     const bow = ((middle.x - mid.x) * (b.z - a.z) - (middle.z - mid.z) * (b.x - a.x)) / chord + track.width / 2 + 18;
     return branch(track.id, start, end, kind, handle, bow, width);
   };
-  const safeSector = (route: TrackBranch) => !track.loops.some(loop => route.start < loop.end + 8 && route.end > loop.start - 8) && route.points.every((point, index) => {
-    if (index % 4) return true;
-    const near = nearestTrack(point.x, point.z, track.id);
-    return near.progress >= route.start - 18 && near.progress <= route.end + 18;
-  });
+  // A branch leaves the road once and returns once. On circuits with hairpins
+  // and esses a chord could otherwise brush or cross another part of its own
+  // sector, opening an unplanned junction in the middle of the main road.
+  const safeSector = (route: TrackBranch) => {
+    // A detour must be a road of its own for a good part of the closed sector;
+    // a turbo lane may stay closer to the road it accompanies.
+    const share = route.kind === 'detour' ? .3 : route.kind === 'shortcut' ? .2 : .15;
+    let runs = 0, clear = 0, apart = false, side = 0, swings = 0, left = 0;
+    for (const point of route.points) {
+      const near = nearestTrack(point.x, point.z, track.id);
+      if (near.progress < route.start - 18 || near.progress > route.end + 18) return false;
+      const separate = near.distance > track.width / 2 + route.width / 2 + 6;
+      // A junction may slide across the road once; it never weaves over it.
+      const lateral = (point.x - near.x) * Math.cos(near.angle) - (point.z - near.z) * Math.sin(near.angle);
+      if (separate) side = swings = left = 0;
+      else if (Math.abs(lateral) > 4) {
+        // Once its centre has left the carriageway on one side, coming back over
+        // the road would cut through the rail it has just opened.
+        if (left && Math.sign(lateral) !== left) return false;
+        if (side && Math.sign(lateral) !== side && ++swings > 1) return false;
+        side = Math.sign(lateral);
+        if (Math.abs(lateral) > track.width / 2 + route.width / 2) left = side;
+      }
+      if (separate && !apart) runs++;
+      if (separate) clear++;
+      apart = separate;
+    }
+    return runs === 1 && clear >= route.points.length * share;
+  };
+  // Which side of the road a branch runs on: the sign of the area it encloses with its sector.
+  const side = (route: TrackBranch) => {
+    const outline = [...Array.from({ length: 49 }, (_, index) => trackPoint(route.start + (route.end - route.start) * index / 48, track.id)),
+      ...[...route.points].reverse()];
+    let area = 0;
+    outline.forEach((point, index) => { const next = outline[(index + 1) % outline.length]!; area += point.x * next.z - next.x * point.z; });
+    return Math.sign(area);
+  };
+  // A branch is a ground-level road: it never spans a bridge or a ramp, whose
+  // height it would otherwise copy without any deck underneath.
+  const level = (start: number, end: number) => !track.elevations.some(feature => start < feature.end + 12 && end > feature.start - 12);
   // Long Bézier transitions preserve the road's entry/exit tangents. Candidate
   // selection favours broad turns and a real geometric shortcut, never a turbo
   // used to disguise a longer, hairpin-shaped route.
   for (const span of [3, 4, 5]) for (let gate = 1; gate + span <= 11; gate++) {
     const start = gate * track.length / 12 + 8, end = (gate + span) * track.length / 12 - 8;
+    if (!level(start, end)) continue;
     for (const handle of [.24, .28, .32, .36]) {
       const shortcut = branch(track.id, start, end, 'shortcut', handle, 0, width);
       const gain = 1 - shortcut.length / (end - start);
-      if (gain < .05 || shortcut.minTurnRadius < 25 || !safeSector(shortcut)) continue;
-      for (const outerHandle of [.38, .44, .5]) {
-        const detour = outward(start, end, 'detour', outerHandle);
-        if (detour.minTurnRadius < 28 || detour.length > (end - start) * 1.22 || !safeSector(detour)) continue;
+      if (gain < .05 || gain > .34 || shortcut.minTurnRadius < 25 || !safeSector(shortcut)) continue;
+      // A wide chord around the outside of a bend, or a lane beside a straighter stretch.
+      for (const detour of [...[.38, .44, .5].map(outerHandle => outward(start, end, 'detour', outerHandle)),
+        ...[1, -1].map(side => bypass(track.id, start, end, 'detour', side, width))]) {
+        if (detour.minTurnRadius < 21 || detour.length < (end - start) * .95 || detour.length > (end - start) * 1.25 || !safeSector(detour)) continue;
+        // The two routes of one sector leave on opposite sides; side by side
+        // their shoulders would merge and hide which rail is really open.
+        if (side(detour) === side(shortcut)) continue;
         let blocker: TrackBlocker | undefined, clearance = -Infinity;
         for (const fraction of [.3, .4, .5, .6, .7]) {
           const point = trackPoint(start + (end - start) * fraction, track.id);
@@ -106,27 +191,29 @@ function layout(trackId: string) {
           if (space > clearance) { clearance = space; blocker = candidate; }
         }
         if (!blocker || clearance < .5) continue;
-        const score = Math.min(shortcut.minTurnRadius, 45) * .003 + gain * .6 - Math.max(0, detour.length / (end - start) - 1) * .2;
+        const score = Math.min(shortcut.minTurnRadius, 45) * .003 + Math.min(detour.minTurnRadius, 40) * .003 + gain * .6 - Math.max(0, detour.length / (end - start) - 1) * .2;
         candidates.push({ detour, shortcut, blocker, score });
       }
     }
   }
   candidates.sort((a, b) => b.score - a.score);
-  const chosen = candidates[0];
-  if (!chosen) throw new Error('Aucune bifurcation fluide et sûre pour le circuit ' + track.id);
-  const { detour, shortcut, blocker } = chosen;
-  const alternatives: TrackBranch[] = [];
-  for (const span of [3, 4]) for (let gate = 1; gate + span <= 11; gate++) {
-    const start = gate * track.length / 12 + 8, end = (gate + span) * track.length / 12 - 8;
-    if (start < detour.end + 10 && end > detour.start - 10) continue;
-    for (const handle of [.38, .44, .5]) {
-      const candidate = outward(start, end, 'technical', handle);
-      if (candidate.minTurnRadius >= 20 && safeSector(candidate)) alternatives.push(candidate);
+  if (!candidates.length) throw new Error('Aucune bifurcation fluide et sûre pour le circuit ' + track.id);
+  // The best pair that still leaves room elsewhere for the turbo lane.
+  const turboLane = (detour: TrackBranch) => {
+    const alternatives: TrackBranch[] = [];
+    for (const span of [3, 4]) for (let gate = 1; gate + span <= 11; gate++) {
+      const start = gate * track.length / 12 + 8, end = (gate + span) * track.length / 12 - 8;
+      if (start < detour.end + 10 && end > detour.start - 10 || !level(start, end)) continue;
+      for (const candidate of [...[.38, .44, .5].map(handle => outward(start, end, 'technical', handle)),
+        ...[1, -1].map(side => bypass(track.id, start, end, 'technical', side, width))])
+        if (candidate.minTurnRadius >= 20 && candidate.length <= (end - start) * 1.2 && safeSector(candidate)) alternatives.push(candidate);
     }
-  }
-  alternatives.sort((a, b) => b.minTurnRadius - a.minTurnRadius);
-  const technical = alternatives[0];
-  if (!technical) throw new Error('Aucune voie secondaire fluide pour le circuit ' + track.id);
+    return alternatives.sort((a, b) => b.minTurnRadius - a.minTurnRadius)[0];
+  };
+  let chosen: typeof candidates[number] | undefined, technical: TrackBranch | undefined;
+  for (const candidate of candidates) { technical = turboLane(candidate.detour); if (technical) { chosen = candidate; break; } }
+  if (!chosen || !technical) throw new Error('Aucune voie secondaire fluide pour le circuit ' + track.id);
+  const { detour, shortcut, blocker } = chosen;
   const result = { branches: [detour, technical, shortcut], blocker };
   layouts.set(track.id, result);
   return result;
@@ -199,6 +286,8 @@ export function nearestDriveableTrack(x: number, z: number, trackId: string, sta
   // Keep the main surface where ribbons join, unless the branch centre is closer.
   for (const route of getTrackEvent(track.id, stage, level).branches) {
     if (!route.open) continue;
+    // A branch can only replace the current answer from closer than it, or from within its own width.
+    if (branchReach(route, x, z) > Math.max(result.distance, route.width / 2)) continue;
     for (let index = 0; index < route.points.length - 1; index++) {
       const a = route.points[index]!, b = route.points[index + 1]!;
       const dx = b.x - a.x, dz = b.z - a.z;

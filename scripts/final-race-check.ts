@@ -5,7 +5,6 @@ import { Client, type Room } from 'colyseus.js';
 import { autopilot } from '../shared/autopilot.js';
 import { COLORS, getTrack, type World } from '../shared/game.js';
 import { KART_MODELS } from '../shared/kart-catalog.js';
-import { kartLoopPose } from '../shared/track-loop.js';
 import { TRACK_LAYOUT_REVISION } from '../shared/track.js';
 import type { PlayerProfile, ReplayData, ReplaySummary } from '../shared/progression.js';
 
@@ -57,7 +56,6 @@ function attach(room: Room, account: { token: string; profile: PlayerProfile }) 
     eventStages.add(snapshot.world.eventStage);
     for (const kart of snapshot.world.players.filter(kart => !kart.spectator)) {
       if (kart.airborne) airborneDrivers.add(kart.playerId);
-      if (driver === drivers[0] && kart.loopId && kartLoopPose(kart).up.y < -.8) invertedDrivers.add(kart.playerId);
       maximumElevation = Math.max(maximumElevation, kart.elevation);
       if (kart.item) itemKinds.add(kart.item);
       if (kart.id === room.sessionId && kart.lap < 3) driver.laps.add(kart.lap);
@@ -153,7 +151,6 @@ try {
   for (const driver of drivers) assert.deepEqual([...driver.laps].sort(), [0, 1, 2]);
   assert.ok(airborneDrivers.size > 0, 'Au moins un décollage observé dans les snapshots réels');
   assert.ok(maximumElevation > 1);
-  if (getTrack(trackId).loops.length) assert.equal(invertedDrivers.size, drivers.length, 'Each driver actually reaches the inverted looping crest');
   results = racers.map(kart => [kart.id, kart.rank, kart.lap, kart.finished, kart.finishTime]);
   for (const driver of drivers) assert.deepEqual(driver.world!.players.filter(kart => !kart.spectator)
     .map(kart => [kart.id, kart.rank, kart.lap, kart.finished, kart.finishTime]), results);

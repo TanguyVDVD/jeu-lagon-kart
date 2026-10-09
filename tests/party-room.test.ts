@@ -115,15 +115,15 @@ test('live party rooms, crown persistence isolation and workshop sessions', { ti
     const reopened = await PlayerStore.open(join(directory, 'players')); assert.equal((await reopened.getReplay(replay.id))?.mode, 'crown'); assert.equal(await reopened.bestGhost('lagon'), null);
   });
   await t.test('workshop validates a solo module, places its approach, restarts and never rewards results', async () => {
-    const draft = structuredClone(CUSTOM_TRACK_TEMPLATES[0]!.draft); draft.lapCount = 6; draft.loops = [{ start: .3, end: .4, height: 28, lateralSpread: 24 }];
+    const draft = structuredClone(CUSTOM_TRACK_TEMPLATES[0]!.draft); draft.lapCount = 6; draft.elevations = [{ kind: 'bridge', start: .3, end: .4, height: 6, approach: 20 }];
     const source = await trackStore.save({ id: account.profile.id, name: 'Host' }, draft), id = customTrackRuntimeId(source);
-    await assert.rejects(sdk.create('race', { trackId: id, workshop: { group: 'loops', index: 0 } }));
-    await assert.rejects(sdk.create('race', { practice: true, trackId: id, workshop: { group: 'loops', index: 9 } }));
-    const workshop = observe(await sdk.create('race', { practice: true, trackId: id, workshop: { group: 'loops', index: 0 }, token: account.token })); peers.push(workshop);
+    await assert.rejects(sdk.create('race', { trackId: id, workshop: { group: 'elevations', index: 0 } }));
+    await assert.rejects(sdk.create('race', { practice: true, trackId: id, workshop: { group: 'elevations', index: 9 } }));
+    const workshop = observe(await sdk.create('race', { practice: true, trackId: id, workshop: { group: 'elevations', index: 0 }, token: account.token })); peers.push(workshop);
     await until(() => !!workshop.world?.workshop, 'workshop source');
     workshop.room.send('ready', { ready: true }); await until(() => workshop.world!.players[0]!.ready, 'workshop ready'); workshop.room.send('start');
     await until(() => workshop.world?.phase === 'racing', 'workshop begins immediately');
-    const selection = getTrackWorkshopStart(id, { group: 'loops', index: 0 })!, point = trackPoint(selection.progress, id);
+    const selection = getTrackWorkshopStart(id, { group: 'elevations', index: 0 })!, point = trackPoint(selection.progress, id);
     assert.ok(Math.hypot(workshop.world!.players[0]!.x - point.x, workshop.world!.players[0]!.z - point.z) < .01);
     const round = workshop.world!.round; workshop.room.send('workshop-restart'); await until(() => workshop.world!.round > round, 'module restart');
     const scene = matchMaker.getLocalRoomById(workshop.room.roomId) as RaceRoom, before = store.listReplays(account.profile.id).length;

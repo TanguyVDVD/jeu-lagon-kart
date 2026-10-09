@@ -1,13 +1,11 @@
 import * as THREE from 'three';
 import type { Kart, World } from '../shared/game';
-import { kartLoopPose } from '../shared/track-loop';
+import { groundLift } from '../shared/road-pose';
 
-/** Two lightweight meshes track the authoritative holder, including in loops. */
+/** Two lightweight meshes track the authoritative holder. */
 export class CrownView {
   private readonly group = new THREE.Group();
   private readonly protection: THREE.Mesh;
-  private readonly up = new THREE.Vector3(0, 1, 0);
-  private readonly normal = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
     const vertices: number[] = [];
@@ -30,11 +28,8 @@ export class CrownView {
     const state = world?.crown, holder = state && players.find(kart => kart.id === state.holderId);
     this.group.visible = !!holder && world?.phase === 'racing';
     if (!holder || !world || !state) return;
-    const pose = kartLoopPose(holder), lift = 3.3 + Math.sin(now * .004) * .12;
-    this.group.position.set(pose.x + pose.up.x * lift, pose.y + pose.up.y * lift, pose.z + pose.up.z * lift);
-    this.normal.set(pose.up.x, pose.up.y, pose.up.z);
-    this.group.quaternion.setFromUnitVectors(this.up, this.normal);
-    this.group.rotateY(now * .001);
+    this.group.position.set(holder.x, holder.elevation + groundLift(holder.x, holder.z, holder.trackId) + 3.3 + Math.sin(now * .004) * .12, holder.z);
+    this.group.rotation.y = now * .001;
     this.protection.visible = world.raceTime < state.protectedUntil;
   }
 }

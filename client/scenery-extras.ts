@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildSceneryWorld } from './scenery-world';
+import { terrainHeight } from './scenery-terrain';
 import { BRIDGE_RAIL_THICKNESS, BRIDGE_RAIL_CENTER_Y, BRIDGE_SHOULDER } from '../shared/obstacle-heights';
 import { trackElevation, trackPoint, type TrackDefinition, type TrackElevation } from '../shared/track';
 import { trackBoundaryGap } from '../shared/track-events';
@@ -22,8 +23,10 @@ export function hasExtraScenery(track: TrackDefinition): boolean {
   return Boolean(track.theme);
 }
 
-/** Add before GameRenderer.batchScenery(). The renderer draws the road at trackElevation(). */
-export function buildTrackExtras(track: TrackDefinition, eventStage = 0, eventLevel = 3): THREE.Group {
+/** Add before GameRenderer.batchScenery(). The renderer draws the road at trackElevation().
+ * `parts` separates the bridges and ramps, whose parapets open with the branches,
+ * from the landscape that never changes during a race. */
+export function buildTrackExtras(track: TrackDefinition, eventStage = 0, eventLevel = 3, parts: 'all' | 'structures' | 'world' = 'all'): THREE.Group {
   const result = new THREE.Group(); result.name = `scenery-${track.id}`;
   result.userData.theme = track.theme; result.userData.structures = [] as string[];
   if (!hasExtraScenery(track)) return result;
@@ -52,6 +55,7 @@ export function buildTrackExtras(track: TrackDefinition, eventStage = 0, eventLe
     return new THREE.Vector3(point.x + Math.cos(point.angle) * offset,
       trackElevation(progress, track.id) + height, point.z - Math.sin(point.angle) * offset);
   };
+  const ground = terrainHeight(track);
   const branchGap = (point: THREE.Vector3) => trackBoundaryGap(point.x, point.z, track.id, eventStage, eventLevel);
   const structural = track.theme === 'forest' ? '#826043' : track.theme === 'castle' ? '#a4a598'
     : track.theme === 'sky' ? '#ae99be' : track.theme === 'volcano' ? '#45484c' : '#526e76';
@@ -89,7 +93,7 @@ export function buildTrackExtras(track: TrackDefinition, eventStage = 0, eventLe
     if (track.theme !== 'sky') {
       // Water/lava is below the elevated deck and never obscures the road.
       const river = box(bridge, track.theme === 'volcano' ? '#f19a47' : track.palette.water,
-        p.x, -.08, p.z, track.width + 38, .035, 24);
+        p.x, ground(p.x, p.z) + .12, p.z, track.width + 38, .035, 24);
       river.rotation.y = p.angle; river.castShadow = false;
     }
   }
@@ -123,11 +127,15 @@ export function buildTrackExtras(track: TrackDefinition, eventStage = 0, eventLe
       flag.rotation.y = trackPoint(feature.end, track.id).angle;
       // The landing zone is clear; only small markers sit outside the full road width.
       const landing = roadPosition(feature.end + 42, side * (track.width / 2 + 2));
-      add(ramp, cone, trim, landing.x, .8, landing.z, .55, 1.6, .55);
+      add(ramp, cone, trim, landing.x, landing.y + .8, landing.z, .55, 1.6, .55);
     }
   }
-  for (const feature of track.elevations) feature.kind === 'bridge' ? bridge(feature) : jump(feature);
-
-  result.add(buildSceneryWorld(track));
+  if (parts !== 'world') for (const feature of track.elevations) feature.kind === 'bridge' ? bridge(feature) : jump(feature);
+  if (parts !== 'structures') {
+    // Landmarks and vegetation stand on the hills instead of the old flat floor.
+    const world = buildSceneryWorld(track);
+    for (const item of world.children) item.position.y += ground(item.position.x, item.position.z);
+    result.add(world);
+  }
   return result;
 }

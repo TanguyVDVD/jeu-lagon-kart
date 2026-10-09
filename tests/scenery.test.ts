@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { TRACKS, trackPoint } from '../shared/track.js';
+import { TRACKS, reliefElevation, trackPoint } from '../shared/track.js';
 import { getTrackEvent, nearestDriveableTrack } from '../shared/track-events.js';
-import { trackLoopPose } from '../shared/track-loop.js';
+import { groundLift } from '../shared/road-pose.js';
 import { buildTrackTerrain } from '../client/scenery-terrain.js';
 import { buildSceneryWorld } from '../client/scenery-world.js';
 import { readFileSync } from 'node:fs';
@@ -16,10 +16,6 @@ for(const track of TRACKS) test(`${track.id}: composed scenery preserves every r
   for(const landmark of landmarks){
     const near=nearestDriveableTrack(landmark.x,landmark.z,track.id,2,3);
     assert.ok(near.distance>near.width/2+landmark.radius+7,`${landmark.name}: ordinary/future route clearance`);
-    for(const loop of track.loops)for(let i=0;i<=48;i++){
-      const pose=trackLoopPose(loop.start+(loop.end-loop.start)*i/48,track.id);
-      assert.ok(Math.hypot(pose.x-landmark.x,pose.z-landmark.z)>track.width/2+landmark.radius+9,`${landmark.name}: actual 3D loop projection clearance`);
-    }
   }
   let triangles=0;
   for(const scene of[world,terrain])scene.traverse(object=>{if(object instanceof THREE.Mesh){
@@ -28,7 +24,7 @@ for(const track of TRACKS) test(`${track.id}: composed scenery preserves every r
   }});
   assert.ok(triangles<35000,`${track.id}: ${triangles} triangles in static world+terrain`);
   const ray=new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(0,-1,0));
-  const routeSamples=Array.from({length:Math.ceil(track.length/4)},(_,i)=>({...trackPoint(i*4,track.id),width:track.width}));
+  const routeSamples=Array.from({length:Math.ceil(track.length/4)},(_,i)=>({...trackPoint(i*4,track.id),progress:i*4,width:track.width}));
   routeSamples.push(...getTrackEvent(track.id,2,3).branches.flatMap(branch=>branch.points.map(p=>({...p,width:branch.width}))));
   const fullWidthSamples=routeSamples.flatMap(p=>[-1,0,1].map(side=>({...p,x:p.x+Math.cos(p.angle)*side*(p.width/2+3),z:p.z-Math.sin(p.angle)*side*(p.width/2+3)})));
   
@@ -36,7 +32,9 @@ for(const track of TRACKS) test(`${track.id}: composed scenery preserves every r
     ray.ray.origin.set(p.x,100,p.z);
     const hit=ray.intersectObject(terrain,true)[0];
     assert.ok(hit,`${track.id}: terrain supports the driving corridor`);
-    assert.ok(hit.point.y<-.1,`${track.id}: raised landscape covers road at ${p.x.toFixed(1)},${p.z.toFixed(1)}: ${hit.point.y}`);
+    // The hills carry the road: the ground stays under its surface, banking included.
+    const surface=reliefElevation(p.progress,track)+groundLift(p.x,p.z,track.id);
+    assert.ok(hit.point.y<surface-.1,`${track.id}: raised landscape covers road at ${p.x.toFixed(1)},${p.z.toFixed(1)}: ${hit.point.y} >= ${surface}`);
   }
 });
 

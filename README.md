@@ -6,12 +6,7 @@ Les **trois modèles gratuits**, Zsky, Sprint et Rétro, acceptent chacun huit p
 
 Voir la [démo intégrée, ses captures et ses tests](docs/DEMO.md), ainsi que le [suivi des tâches](todo.md).
 
-L’accueil affiche **votre grade, votre MMR et la recherche de course classée**.
-Créer, Rejoindre et Entraînement sont accessibles sans défilement à 320 × 568.
-Dans le salon, la barre **Prêt** reste visible et un **QR code** permet d’inviter
-un téléphone. Les graphismes **Auto / Fluide / Détaillé** sont mémorisés ; l’aide
-de conduite explique les modes tactiles automatique et manuel.
-[Parcours, captures et validation](docs/ux-home/README.md).
+Les douze circuits ont du **relief** : montées, descentes, crêtes et virages inclinés. Leurs tracés mêlent épingles, lacets et enchaînements de S, et les embranchements (déviation, voie turbo, raccourci) suivent le terrain. Les loopings ont été retirés. [Détail des changements, mesures et limites](docs/RELIEF_PERF_PROGRESS.md).
 
 ## Créer et partager un circuit
 
@@ -72,24 +67,24 @@ Le mode **Entraînement** permet de courir seul sur le circuit choisi. Un nouvel
 
 | Circuit | Particularités |
 | --- | --- |
-| Île des Alizés | Grandes courbes autour d'un phare rayé, resort de plage et palmeraies ; turbos et boue. |
-| Canyon solaire | Tracé sinueux entre une mesa à strates, une arche rocheuse et des buttes ; bonne adhérence. |
-| Banquise boréale | Courbes glissantes autour d'une cathédrale de glace, cristaux et station polaire. |
-| Métropole néon | Boulevard nocturne, quartier de tours lumineuses, chicane et trois lignes turbo. |
-| Mangrove sinueuse | Méandres boueux, village sur pilotis, passerelles, racines aériennes et nénuphars. |
-| Dunes de cuivre | Courbes étirées, observatoire pyramidal, obélisques, oasis et caravane. |
-| Caldeira ardente | Cratère ouvert, lave visible, orgues basaltiques, viaduc et tremplin. |
-| Forêt des géants | Arbre-maison, bosquets, cascade, pont en bois, boue évitable et saut. |
-| Port des cargos | Terminal de conteneurs, grue treillis, cargo, pont métallique et rampe de quai. |
-| Archipel céleste | Observatoire et îlots flottants, montgolfières, looping de 32 m, ponts et saut. |
-| Fonderie des pistons | Aciérie, tours de refroidissement, vannes, looping de 27 m et rampe d'essai. |
-| Citadelle royale | Donjon, tours crénelées, porte de jardin, verger, pont de pierre et saut de parade. |
+| Île des Alizés | 829 m. Grande courbe de plage, S entre les palmiers et épingle large ; colline de 6 m, turbos et boue. |
+| Canyon solaire | 1 269 m. Deux lacets accrochés à la falaise, montée de 12 m vers le plateau puis longue descente. |
+| Banquise boréale | 1 034 m. Courbes rapides, chicane sur la crête à 9 m et descente glacée. |
+| Métropole néon | 1 079 m. Boulevards, angles droits et crochet entre les tours ; trois lignes turbo. |
+| Mangrove sinueuse | 1 166 m. Serpent de virages et grand méandre autour du village sur pilotis ; boue alternée. |
+| Dunes de cuivre | 1 067 m. Deux longues lignes droites qui ondulent sur les dunes (jusqu'à 8 m) ; quatre turbos. |
+| Caldeira ardente | 1 435 m. Montée de 16 m autour du cratère, viaduc au-dessus de la lave, épingle et tremplin. |
+| Forêt des géants | 1 505 m. Courbes vallonnées entre les séquoias, pont de bois, boue évitable et saut. |
+| Port des cargos | 1 434 m. Grands quais, pont métallique, tour du bassin et rampe de chargement. |
+| Archipel céleste | 1 382 m. Parcours en aile entre les îlots, deux viaducs, crêtes et grand saut. |
+| Fonderie des pistons | 1 375 m. Tracé en coudes entre les hauts-fourneaux, passerelle et rampe d'essai. |
+| Citadelle royale | 1 285 m. Montée de 14 m vers le donjon, pont de pierre sur les douves et saut de parade. |
 
 Les tracés, largeurs, décors, zones et checkpoints sont propres à chaque circuit. Les terrains suivent leur silhouette ; les reliefs et monuments laissent libres les routes et les branches qui peuvent s'ouvrir. Les réglages d'un salon n'affectent pas les autres salons. Voir [les paysages, leur coût et leurs sources](docs/SCENERY.md).
 
 Les événements se règlent du niveau **0 à 3**. Le niveau 0 garde le circuit classique. Dès le niveau 1, une déviation large avec objets et une voie turbo glissante offrent des alternatives ; un raccourci ouvre au troisième tour du leader. À partir du niveau 2, un barrage et une modification du terrain apparaissent au deuxième tour. Le niveau 3 combine météo et terrains difficiles. Tous les joueurs rencontrent la même phase, y compris ceux qui ont un tour de retard.
 
-Les bifurcations sont annoncées en amont et dessinées sur la mini-carte, avec le barrage et le raccourci fermé. Les nouveaux raccordements ont des courbes progressives et une largeur de 12 à 14 m ; les raccourcis économisent **13 à 34 % de distance** sur la portion de route normale remplacée. Les checkpoints alternatifs doivent être réellement franchis, dans l'ordre. Les six nouvelles pistes ajoutent des ponts et des tremplins, avec montée, saut et réception simulés. Voir [les tracés et les mesures des branches](docs/CIRCUITS.md) et [les six pistes à relief](docs/CIRCUITS_APPENDIX.md). Les deux [loopings de Sky et Foundry](docs/LOOPINGS.md) sont parcourus par les pilotes avec une orientation et une caméra adaptées, tout en conservant la progression des tours et la simulation partagée.
+Les bifurcations sont annoncées en amont et dessinées sur la mini-carte, avec le barrage et le raccourci fermé. Les nouveaux raccordements ont des courbes progressives et une largeur de 12 à 14 m ; les raccourcis économisent **8 à 32 % de distance** sur la portion de route normale remplacée. Les checkpoints alternatifs doivent être réellement franchis, dans l'ordre. Six pistes ajoutent des ponts et des tremplins, avec montée, saut et réception simulés ; un embranchement ne passe jamais sur un pont ni un tremplin. Les documents [CIRCUITS.md](docs/CIRCUITS.md), [CIRCUITS_APPENDIX.md](docs/CIRCUITS_APPENDIX.md) et [LOOPINGS.md](docs/LOOPINGS.md) décrivent les tracés précédents.
 
 L'hôte choisit **Une course** ou **Un tournoi**, avant le premier départ. Pour un tournoi de **2 à 8 courses** :
 
@@ -289,7 +284,7 @@ Suite complète du lot précédent (bots et comptes), le 7 octobre 2026 : **312/
 
 - `shared/track.ts` : catalogue des circuits, zones et checkpoints communs.
 - `shared/track-events.ts` : branches, surfaces évolutives, barrages et portes alternatives.
-- `shared/track-loop.ts`, `client/track-loops.ts` : parcours, orientation et rendu des loopings.
+- `shared/road-pose.ts`, `client/road-mesh.ts`, `client/scenery-terrain.ts` : pente et inclinaison de la route, ruban sans repli dans les virages serrés, glissières, talus et terrain vallonné.
 - `shared/game.ts` : conduite déterministe, surfaces, aspiration, départ turbo, progression, collisions et objets.
 - `shared/tournament.ts` : configuration, tirage des circuits, points et classement cumulé.
 - `shared/garage.ts`, `shared/teams.ts`, `shared/cpu.ts` : pièces, équipes et conduite des CPU.

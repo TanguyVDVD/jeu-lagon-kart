@@ -67,23 +67,23 @@ try{
   browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-background-timer-throttling','--disable-renderer-backgrounding']});
   const desktop=await browser.newContext({viewport:{width:1280,height:900},deviceScaleFactor:1});await desktop.addInitScript(origin=>{if(location.origin===origin)localStorage.setItem('lagon-volume','0');},origin);
   const page=await desktop.newPage();await open(page);await (await homeControl(page, '#name-input')).fill('Éditeur privé');await (await homeControl(page, '#track-editor-button')).click();await field(page,'#editor-name','Mon brouillon confidentiel');
-  await section(page,'#editor-relief-options');await page.locator('#editor-add-bridge').click();await page.locator('#editor-add-loop').click();await field(page,feature('elevations','start'),'30');await field(page,feature('elevations','duration'),'8');
+  await section(page,'#editor-relief-options');await page.locator('#editor-add-bridge').click();await page.locator('#editor-add-jump').click();await field(page,feature('elevations','start'),'30');await field(page,feature('elevations','duration'),'8');
   await section(page,'#editor-event-options');await page.locator('#editor-add-event').click();await field(page,feature('events','start'),'72');await field(page,feature('events','duration'),'4');
   await section(page,'#editor-interaction-options');await page.locator('#editor-add-switch-boost').click();await field(page,feature('interactions','trigger'),'82');await field(page,feature('interactions','start'),'88');await field(page,feature('interactions','duration'),'3');
-  const movements=[];for(const group of ['zones','elevations','loops','events','interactions']as const){
+  const movements=[];for(const group of ['zones','elevations','events','interactions']as const){
     const before=await localDraft(page),movement=await drag(page,{group,index:0});movements.push(movement);
     await page.locator('#editor-undo').click();assert.deepEqual(await localDraft(page),before,'single undo reverts the entire drag');await page.locator('#editor-redo').click();
     assert.ok(Math.abs(customTrackModule(await localDraft(page),{group,index:0})!.start-movement.after)<1e-10);
   }
   movements.push(await drag(page,{group:'interactions',index:0,handle:'trigger'}));evidence.movements=movements;
-  const current=page.locator(marker({group:'loops',index:0}));await current.focus();const previous=await localDraft(page);await current.press('ArrowRight');
-  assert.ok(Math.abs((await localDraft(page)).loops![0]!.start-previous.loops![0]!.start-.005)<1e-8);await page.locator('#editor-undo').click();
-  await page.locator(marker({group:'loops',index:0})).focus();await page.keyboard.press('Enter');await page.locator(feature('loops','height')).waitFor({state:'visible'});
+  const current=page.locator(marker({group:'elevations',index:1}));await current.focus();const previous=await localDraft(page);await current.press('ArrowRight');
+  assert.ok(Math.abs((await localDraft(page)).elevations![1]!.start-previous.elevations![1]!.start-.005)<1e-8);await page.locator('#editor-undo').click();
+  await page.locator(marker({group:'elevations',index:1})).focus();await page.keyboard.press('Enter');await page.locator(feature('elevations','height')).waitFor({state:'visible'});
   assert.deepEqual(await records(),[]);assert.deepEqual(await readdir(join(directory,'tracks')),[]);
   await page.locator('#editor-canvas').scrollIntoViewIfNeeded();await capture(page,'direct-module-placement.png');
-  mark('Cinq types de modules et plaque déplacés directement sur le plan ; longueur conservée, annuler/rétablir en une action, réglages et flèches accessibles.');
+  mark('Quatre types de modules et plaque déplacés directement sur le plan ; longueur conservée, annuler/rétablir en une action, réglages et flèches accessibles.');
   const before=await progression(page);assert.ok(before);evidence.progressionBefore=before;
-  const first=await tryPrivate(page,'[data-feature-card="loops-0"] [data-action="try-feature"]');await capture(page,'private-draft-workshop.png');await back(page,first.initial.trackId);
+  const first=await tryPrivate(page,'[data-feature-card="elevations-0"] [data-action="try-feature"]');await capture(page,'private-draft-workshop.png');await back(page,first.initial.trackId);
   const retained=await localDraft(page);assert.equal(retained.name,'Mon brouillon confidentiel');
   const second=await tryPrivate(page,'#editor-try');await back(page,second.initial.trackId);assert.notEqual(first.initial.trackId,second.initial.trackId);
   assert.deepEqual(await records(),[]);assert.deepEqual(await readdir(join(directory,'tracks')),[]);evidence.privateTrials=[first,second];
@@ -91,7 +91,7 @@ try{
   mark('Deux essais privés module/circuit entier : conduite réelle, sources éphémères libérées, aucun circuit ni fichier publié ; brouillon retrouvé après rechargement.');
   await page.locator('#editor-save').click();await until(async()=>/Circuit publié/.test(await page.locator('#editor-status').innerText()),'Publication explicite');
   const published=(await records())[0]!;assert.equal(published.revision,1);assert.deepEqual(published.draft,retained);assert.equal((await readdir(join(directory,'tracks'))).length,1);
-  await section(page,'#editor-relief-options');await field(page,feature('loops','height'),'26');const third=await tryPrivate(page,'[data-feature-card="loops-0"] [data-action="try-feature"]');await back(page,third.initial.trackId);
+  await section(page,'#editor-relief-options');await field(page,feature('elevations','height'),'26');const third=await tryPrivate(page,'[data-feature-card="elevations-0"] [data-action="try-feature"]');await back(page,third.initial.trackId);
   assert.deepEqual(await records(),[published]);assert.equal((await readdir(join(directory,'tracks'))).length,1);evidence.privateTrials=(evidence.privateTrials as unknown[]).concat(third);
   assert.deepEqual(await progression(page),before);evidence.progressionAfter=await progression(page);
   mark('Publication volontaire version1, puis modification et nouvel essai : la version publique et la progression restent intactes.');

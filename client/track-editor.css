@@ -72,7 +72,7 @@
 .editor-feature-legend{display:flex;flex-wrap:wrap;gap:5px 12px;font-size:10px;line-height:1.4;color:var(--editor-muted)}
 .editor-feature-legend>span{display:inline-flex;align-items:center;gap:5px}
 .editor-feature-legend>span::before{content:"";width:8px;height:8px;border-radius:50%;background:#d77924;flex-shrink:0}
-.editor-feature-legend>.editor-legend-loop::before{background:#914bbd}
+
 .editor-feature-legend>.editor-legend-event::before{background:#2f86b0}
 #editor-add-event{margin-top:12px}
 .editor-library>summary{font-size:13px;line-height:1.5;padding-top:0}

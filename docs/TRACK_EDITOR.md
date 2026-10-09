@@ -16,7 +16,7 @@ abonnement, service externe ou dépendance supplémentaire : **0 €**.
 4. Donner un nom, choisir l’un des dix thèmes et régler la largeur de la route.
    Les zones turbo, glace et boue sont facultatives ; leur position est exprimée
    en pourcentage du tour. Les décors du thème sont générés autour de la piste.
-   Ouvrir les sections **Durée**, **Reliefs et loopings** et **Événements** pour
+   Ouvrir les sections **Durée**, **Ponts et sauts** et **Événements** pour
    personnaliser aussi le nombre de tours et le déroulement de la course.
 5. **Essayer en privé** ouvre un atelier solo sur le brouillon, sans publication
    et sans XP, record ou replay. **Essayer ce passage** commence avant le module
@@ -46,7 +46,7 @@ pointeur, au tactile et au clavier : tabulation, flèches, Maj pour affiner et
 Ctrl/Cmd+Z. **Ctrl/Cmd+S sauvegarde uniquement le brouillon local**.
 
 Faites glisser les repères colorés pour déplacer directement les zones,
-reliefs, loopings, événements et cibles d’interrupteurs en conservant leur
+reliefs, événements et cibles d’interrupteurs en conservant leur
 longueur. Le cercle d’une plaque se déplace indépendamment de sa cible.
 Un toucher, un clic ou Entrée ouvre les réglages du module sélectionné ; les
 champs numériques restent disponibles. Un glissement s’annule en une action.
@@ -59,7 +59,7 @@ Un auteur peut modifier ses propres créations. **Dupliquer** ouvre une copie
 de la création d’un autre joueur. Deux onglets qui modifient la même version
 ne s’écrasent pas : le second reçoit un message invitant à recharger.
 
-## Tours, ponts, tremplins et loopings
+## Tours, ponts et tremplins
 
 Quand deux portions se croisent, un **pont automatique** surélève celle parcourue
 le plus tard dans le tour. Le passage inférieur devient un tunnel, avec 5 m de
@@ -85,15 +85,15 @@ salon et tournoi. L’accueil et le compteur en course affichent cette valeur.
 Les anciens circuits personnalisés restent à trois tours tant qu’ils ne sont
 pas modifiés. Les replays et la limite de durée suivent les courses plus longues.
 
-Dans la section des reliefs, **Ajouter un pont**, **Ajouter un tremplin** ou
-**Ajouter un looping** place un module avec des réglages initiaux. Sa position
+Dans la section des reliefs, **Ajouter un pont** ou **Ajouter un tremplin**
+place un module avec des réglages initiaux. Sa position
 et sa longueur sont exprimées en pourcentage du tracé. Les hauteurs, rampes et
 écartements sont en mètres. Le tremplin possède aussi une impulsion de saut.
 Le plan marque les modules ; le bouton de suppression et Annuler/Rétablir
-permettent d’expérimenter. Jusqu’à 16 ponts/tremplins et 16 loopings sont conservés.
+permettent d’expérimenter. Jusqu’à 16 ponts/tremplins sont conservés.
+Les loopings ont été retirés : un brouillon qui en contenait se charge sans eux.
 
-Les loopings utilisent la piste magnétique du jeu : le kart suit réellement
-la boucle en trois dimensions. Ponts et tremplins reprennent la hauteur et les
+Ponts et tremplins reprennent la hauteur et les
 sauts de la simulation serveur. Des modules superposés ou un tracé extrême
 peuvent être difficiles à parcourir : **Essayer en privé** sert à ajuster
 le résultat. Le niveau de détail visuel est plafonné pour les très longs modules,
@@ -114,7 +114,7 @@ de ce pilote. Tous les joueurs voient le même état, même s’ils ont du retar
 | Éclaircie | Météo claire |
 
 On peut programmer jusqu’à 64 événements, y compris après le troisième tour.
-Les surfaces actives apparaissent sur la route, également dans les loopings.
+Les surfaces actives apparaissent sur la route.
 Si plusieurs surfaces temporaires se chevauchent, la première de la liste prime ;
 pour plusieurs choix météo au même tour, le dernier donne l’ambiance visible.
 Un numéro de tour au-delà de la durée choisie doit être corrigé avant publication.
@@ -166,7 +166,8 @@ comptes illisibles. Les fichiers de sauvegarde restent exclus de Git.
   liste a priorité, comme dans la simulation.
 - Checkpoints, grille et bordures calculés automatiquement. Validation du même
   tracé côté éditeur et côté serveur, avec erreurs en français.
-- Ponts, tremplins, loopings et événements par tour sont configurables. Les
+- Ponts, tremplins et événements par tour sont configurables. Le relief
+  (collines) et l’inclinaison des virages restent propres aux circuits officiels. Les
   bifurcations et barrages automatiques des circuits officiels ne sont pas
   générés sur les créations ; l’atelier ne dessine pas encore de route alternative.
 

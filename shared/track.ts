@@ -1,6 +1,5 @@
 import { automaticTrackElevation, type TrackCrossing } from './track-crossings.js';
-export const TRACK_LAYOUT_REVISION = 2;
-export interface TrackLoop { id: string; start: number; end: number; height: number; lateralSpread: number }
+export const TRACK_LAYOUT_REVISION = 3;
 export type TrackLapEventKind = 'clear' | 'rain' | 'snow' | 'ash' | 'storm' | 'boost' | 'ice' | 'mud';
 export interface TrackLapEvent {
   id: string; lap: number; kind: TrackLapEventKind;
@@ -29,6 +28,8 @@ export interface TrackInteraction {
   trigger: number; start: number; end: number; offset: number; width: number;
   duration: number; height?: number; launchSpeed?: number; elevationId?: string;
 }
+/** A summit, hollow or plateau of the rolling ground under the road. */
+export interface TrackReliefPoint { /** Metres from the start. */ at: number; /** Metres above the island floor. */ height: number }
 export interface TrackDefinition {
   id: TrackId; name: string; description: string;
   difficulty: 'Facile' | 'Intermédiaire' | 'Technique';
@@ -37,7 +38,8 @@ export interface TrackDefinition {
   checkpoints: Array<Vec2 & { angle: number; progress: number }>;
   zones: TrackZone[];
   elevations: TrackElevation[];
-  loops: TrackLoop[];
+  /** Hills of the official circuits. Bridges, jumps and crossings are added on top. */
+  relief?: TrackReliefPoint[];
   /** Derived layered intersections for user-created roads; absent on ordinary tracks. */
   crossings?: TrackCrossing[];
   /** Omitted by historical tracks; three laps remain the default. */
@@ -56,18 +58,36 @@ export function getTrackLapCount(trackId = 'lagon'): number { return getTrack(tr
 export function getTrackRaceTimeLimit(trackId = 'lagon'): number { return BASE_RACE_SECONDS * Math.max(1, getTrackLapCount(trackId) / TOTAL_LAPS); }
 export function getTrackReplayTimeLimit(trackId = 'lagon'): number { return getTrackRaceTimeLimit(trackId) + 60; }
 export const COLORS = ['#fc735d', '#69cbd0', '#fed36a', '#bca4ef', '#92cf84', '#fa9ac4', '#638ce6', '#f4f1de'];
-interface ArcTable { lengths: number[]; cumulative: number[] }
+interface ArcTable { lengths: number[]; cumulative: number[]; grid?: SegmentGrid }
+/** Road segments binned on the ground, so a position only meets the few around it. */
+interface SegmentGrid { x: number; z: number; columns: number; rows: number; cells: number[][] }
+const GRID_CELL = 16;
+function segmentGrid(track: TrackDefinition, table: ArcTable): SegmentGrid {
+  if (table.grid) return table.grid;
+  const xs = track.points.map(point => point.x), zs = track.points.map(point => point.z);
+  const x = Math.min(...xs), z = Math.min(...zs);
+  const columns = Math.floor((Math.max(...xs) - x) / GRID_CELL) + 1, rows = Math.floor((Math.max(...zs) - z) / GRID_CELL) + 1;
+  const cells: number[][] = Array.from({ length: columns * rows }, () => []);
+  track.points.forEach((a, index) => {
+    const b = track.points[(index + 1) % track.points.length]!;
+    const fromX = Math.floor((Math.min(a.x, b.x) - x) / GRID_CELL), toX = Math.floor((Math.max(a.x, b.x) - x) / GRID_CELL);
+    const fromZ = Math.floor((Math.min(a.z, b.z) - z) / GRID_CELL), toZ = Math.floor((Math.max(a.z, b.z) - z) / GRID_CELL);
+    for (let column = fromX; column <= toX; column++) for (let row = fromZ; row <= toZ; row++) cells[row * columns + column]!.push(index);
+  });
+  return table.grid = { x, z, columns, rows, cells };
+}
 const arcTables = new WeakMap<TrackDefinition, ArcTable>();
 function spline(p0: number, p1: number, p2: number, p3: number, t: number): number {
   return 0.5 * ((2 * p1) + (-p0 + p2) * t +
     (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
     (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
 }
-export type TrackSeed = Omit<TrackDefinition, 'points' | 'length' | 'checkpoints' | 'zones' | 'elevations' | 'loops'> & {
+export type TrackSeed = Omit<TrackDefinition, 'points' | 'length' | 'checkpoints' | 'zones' | 'elevations' | 'relief'> & {
   anchors: [number, number][];
   zones: Array<Omit<TrackZone, 'id'>>;
   elevations?: Array<Omit<TrackElevation, 'id'>>;
-  loops?: Array<Omit<TrackLoop, 'id'>>;
+  /** [fraction of the lap, height in metres]. The ground is level at each point and eases between them. */
+  relief?: Array<[number, number]>;
 };
 export function sampleTrackAnchors(anchors: readonly Vec2[]): Vec2[] {
   return anchors.flatMap((point, i) => {
@@ -89,11 +109,11 @@ export function makeTrack(seed: TrackSeed): TrackDefinition {
   const length = cumulative[cumulative.length - 1]!;
   const track: TrackDefinition = { id: seed.id, name: seed.name, description: seed.description,
     difficulty: seed.difficulty, theme: seed.theme, width: seed.width, palette: seed.palette, grip: seed.grip,
-    points, length, checkpoints: [], loops: (seed.loops ?? []).map((loop, index) => ({ ...loop,
-      id: `${seed.id}-magnetic-loop-${index}`, start: loop.start * length, end: loop.end * length })), elevations: (seed.elevations ?? []).map((feature, index) => ({ ...feature,
+    points, length, checkpoints: [], elevations: (seed.elevations ?? []).map((feature, index) => ({ ...feature,
       id: `${seed.id}-${feature.kind}-${index}`, start: feature.start * length, end: feature.end * length })),
     zones: seed.zones.map((zone, index) => ({ ...zone,
       id: seed.id + '-' + zone.kind + '-' + index, start: zone.start * length, end: zone.end * length })) };
+  if (seed.relief?.length) track.relief = seed.relief.map(([at, height]) => ({ at: at * length, height })).sort((a, b) => a.at - b.at);
   arcTables.set(track, { lengths, cumulative });
   track.checkpoints = Array.from({ length: 12 }, (_, i) => ({
     ...pointOnTrack(i * length / 12, track), progress: i * length / 12,
@@ -103,129 +123,139 @@ export function makeTrack(seed: TrackSeed): TrackDefinition {
 // Closed circuits. The final sampled point connects to the first.
 export const TRACKS: TrackDefinition[] = [
   makeTrack({ id: 'lagon', name: 'Île des Alizés', theme: 'tropical', difficulty: 'Facile', width: 16, grip: 1,
-    description: 'De grandes courbes pour apprendre le drift. Visez les bandes turbo et évitez les flaques de boue.',
+    description: 'Une grande courbe en bord de plage, un S entre les palmiers et une épingle large pour apprendre le drift. Visez les bandes turbo et évitez les flaques de boue.',
     palette: { sky: '#cbe8df', water: '#56b8b0', ground: '#c8dca1', road: '#667976', accent: '#f5bd62' },
-    anchors: [[0,-92],[70,-83],[113,-22],[95,43],[38,87],[-28,73],[-82,38],[-107,-19],[-66,-75]],
-    zones: [ { kind: 'boost', start: .10, end: .12, offset: 0, width: 7 },
+    anchors: [[0,-110],[70,-110],[125,-80],[140,-20],[105,30],[45,45],[20,100],[-45,120],[-100,85],[-95,20],[-125,-30],[-120,-85],[-60,-110]],
+    zones: [ { kind: 'boost', start: .04, end: .06, offset: 0, width: 7 },
       { kind: 'mud', start: .35, end: .39, offset: 4.8, width: 5.5 },
       { kind: 'boost', start: .68, end: .70, offset: -3, width: 6 } ],
+    relief: [[.97, 0], [.05, 0], [.2, 5], [.38, 1.5], [.55, 6], [.8, 2]],
   }),
   makeTrack({ id: 'canyon', name: 'Canyon solaire', theme: 'canyon', difficulty: 'Intermédiaire', width: 15, grip: 1.08,
-    description: 'Des virages resserrés entre les falaises. Évitez la boue et préparez vos mini-turbos avant les lignes droites.',
+    description: 'Deux lacets accrochés à la falaise, une montée vers le plateau et une longue descente. Évitez la boue et préparez vos mini-turbos avant les lignes droites.',
     palette: { sky: '#f5d7b6', water: '#bc8261', ground: '#d99b67', road: '#795f56', accent: '#ffb342' },
-    anchors: [[0,-116],[68,-105],[113,-59],[99,-5],[50,25],[30,83],[-13,106],[-66,70],[-106,6],[-93,-61],[-51,-103]],
-    zones: [ { kind: 'boost', start: .05, end: .075, offset: 0, width: 6 },
-      { kind: 'mud', start: .29, end: .34, offset: -3.5, width: 7 },
-      { kind: 'mud', start: .60, end: .655, offset: 3.5, width: 7 },
+    anchors: [[0,-130],[75,-130],[135,-105],[150,-45],[110,-5],[40,-10],[-10,20],[5,70],[70,82],[130,100],[135,145],[90,170],[20,165],[-45,155],[-100,115],[-140,60],[-120,0],[-150,-60],[-110,-115],[-55,-130]],
+    zones: [ { kind: 'boost', start: .03, end: .05, offset: 0, width: 6 },
+      { kind: 'mud', start: .29, end: .33, offset: -3.5, width: 7 },
+      { kind: 'mud', start: .60, end: .64, offset: 3.5, width: 7 },
       { kind: 'boost', start: .87, end: .89, offset: 0, width: 7 } ],
+    relief: [[.96, 0], [.05, 0], [.22, 6], [.36, 12], [.5, 12], [.66, 5], [.84, 2]],
   }),
   makeTrack({ id: 'glacier', name: 'Banquise boréale', theme: 'ice', difficulty: 'Technique', width: 18, grip: .86,
-    description: 'La glace conserve votre élan et ralentit les changements de direction. Anticipez les virages et freinez avant les plaques bleues.',
+    description: 'De longues courbes rapides, une chicane sur la crête et une descente glacée. La glace conserve votre élan : anticipez les virages et freinez avant les plaques bleues.',
     palette: { sky: '#c5dced', water: '#538faa', ground: '#e7f3ed', road: '#9dc9d3', accent: '#76eeeb' },
-    anchors: [[0,-118],[60,-107],[105,-65],[98,-8],[65,59],[16,112],[-43,95],[-98,44],[-105,-20],[-66,-89]],
-    zones: [ { kind: 'ice', start: .14, end: .24, offset: 0, width: 18 },
+    anchors: [[0,-140],[80,-140],[150,-110],[170,-40],[130,20],[150,80],[110,135],[35,150],[-30,120],[-60,60],[-120,40],[-165,-10],[-150,-80],[-90,-130]],
+    zones: [ { kind: 'ice', start: .14, end: .22, offset: 0, width: 18 },
       { kind: 'boost', start: .36, end: .38, offset: -4, width: 6 },
-      { kind: 'ice', start: .53, end: .65, offset: 0, width: 18 },
-      { kind: 'ice', start: .79, end: .86, offset: 3, width: 9 } ],
+      { kind: 'ice', start: .58, end: .66, offset: 0, width: 18 },
+      { kind: 'ice', start: .79, end: .85, offset: 3, width: 9 } ],
+    relief: [[.96, 2], [.05, 2], [.2, 8], [.34, 9], [.5, 3], [.66, 0], [.82, 4]],
   }),
   makeTrack({ id: 'neon', name: 'Métropole néon', theme: 'neon', difficulty: 'Intermédiaire', width: 17, grip: 1.03,
-    description: 'Une chicane urbaine et trois bandes turbo. Changez de ligne pour enchaîner les accélérations et profiter de l’aspiration.',
+    description: 'De grands boulevards, des angles droits et un crochet entre les tours. Changez de ligne pour enchaîner les trois bandes turbo et profiter de l’aspiration.',
     palette: { sky: '#1b2547', water: '#293153', ground: '#454f72', road: '#303549', accent: '#ef71d8' },
-    anchors: [[0,-100],[68,-100],[109,-59],[108,13],[77,67],[10,82],[-65,82],[-109,45],[-110,-32],[-73,-89]],
-    zones: [ { kind: 'boost', start: .07, end: .09, offset: -3.5, width: 6 },
+    anchors: [[0,-120],[90,-120],[150,-100],[165,-40],[165,25],[125,65],[65,65],[30,105],[25,150],[-15,180],[-90,170],[-150,125],[-165,50],[-160,-30],[-140,-95],[-80,-120]],
+    zones: [ { kind: 'boost', start: .04, end: .06, offset: -3.5, width: 6 },
       { kind: 'boost', start: .53, end: .555, offset: 3.5, width: 6 },
       { kind: 'boost', start: .80, end: .825, offset: 0, width: 7 } ],
+    relief: [[.95, 0], [.06, 0], [.22, 4], [.4, 1], [.62, 5], [.8, 1.5]],
   }),
   makeTrack({ id: 'mangrove', name: 'Mangrove sinueuse', theme: 'tropical', difficulty: 'Technique', width: 16, grip: .98,
-    description: 'Une double courbe entre les marais. La boue alterne d’un bord à l’autre : gardez une ligne propre pour rejoindre les deux turbos.',
+    description: 'Un serpent de virages entre les marais et un grand méandre autour du village sur pilotis. La boue alterne d’un bord à l’autre : gardez une ligne propre pour rejoindre les deux turbos.',
     palette: { sky: '#bed0bd', water: '#427c70', ground: '#749666', road: '#556660', accent: '#e2c674' },
-    anchors: [[0,-111],[63,-90],[100,-40],[66,7],[75,66],[28,103],[-25,82],[-73,91],[-112,41],[-90,-14],[-94,-67],[-54,-105]],
-    zones: [ { kind: 'mud', start: .16, end: .205, offset: 4, width: 6 },
+    anchors: [[0,-135],[75,-125],[130,-80],[150,-15],[130,50],[80,95],[20,100],[-25,65],[-75,65],[-105,105],[-100,160],[-135,195],[-185,170],[-200,110],[-170,45],[-175,-20],[-140,-80],[-80,-120]],
+    zones: [ { kind: 'mud', start: .16, end: .2, offset: 4, width: 6 },
       { kind: 'mud', start: .34, end: .38, offset: -4, width: 6 },
       { kind: 'boost', start: .46, end: .48, offset: 0, width: 6 },
-      { kind: 'mud', start: .61, end: .66, offset: 4, width: 6 },
+      { kind: 'mud', start: .61, end: .65, offset: 4, width: 6 },
       { kind: 'mud', start: .84, end: .88, offset: -4, width: 6 },
-      { kind: 'boost', start: .93, end: .95, offset: 0, width: 6 } ],
+      { kind: 'boost', start: .96, end: .98, offset: 0, width: 6 } ],
+    relief: [[.95, 1], [.05, 1], [.2, 3.5], [.4, 0], [.58, 3], [.78, .5]],
   }),
   makeTrack({ id: 'dunes', name: 'Dunes de cuivre', theme: 'canyon', difficulty: 'Facile', width: 15, grip: 1.04,
-    description: 'Deux longues lignes droites et quatre bandes turbo pour jouer l’aspiration. Les flaques de boue à la sortie des courbes punissent les trajectoires trop larges.',
+    description: 'Deux longues lignes droites qui ondulent sur les dunes et quatre bandes turbo pour jouer l’aspiration. Les flaques de boue à la sortie des courbes punissent les trajectoires trop larges.',
     palette: { sky: '#efc7a8', water: '#c38b68', ground: '#e3b87e', road: '#876b58', accent: '#f1d082' },
-    anchors: [[0,-64],[83,-64],[129,-38],[136,15],[100,59],[22,64],[-60,64],[-126,40],[-143,-2],[-121,-42],[-72,-64]],
-    zones: [ { kind: 'boost', start: .065, end: .085, offset: -3.5, width: 6 },
+    anchors: [[0,-70],[90,-70],[170,-60],[215,-15],[200,45],[140,75],[60,85],[-20,90],[-100,85],[-170,90],[-225,55],[-230,-10],[-185,-50],[-115,-45],[-60,-70]],
+    zones: [ { kind: 'boost', start: .04, end: .06, offset: -3.5, width: 6 },
       { kind: 'mud', start: .20, end: .235, offset: 4, width: 6 },
       { kind: 'boost', start: .34, end: .36, offset: 3.5, width: 6 },
       { kind: 'boost', start: .53, end: .55, offset: -3.5, width: 6 },
       { kind: 'mud', start: .70, end: .745, offset: 4, width: 6 },
       { kind: 'boost', start: .84, end: .86, offset: 3.5, width: 6 } ],
+    relief: [[.96, 3], [.04, 3], [.13, 8], [.24, 2], [.36, 7], [.46, 1], [.56, 8], [.7, 2], [.84, 6]],
   }),
   makeTrack({ id: 'volcan', name: 'Caldeira ardente', theme: 'volcano', difficulty: 'Intermédiaire', width: 22, grip: 1.04,
-    description: 'Un grand anneau autour du cratère, un viaduc au-dessus de la lave et un tremplin de basalte. Gardez votre vitesse sur les larges courbes.',
+    description: 'Une montée autour du cratère, un viaduc au-dessus de la lave, un tremplin de basalte et une épingle dans la descente. Gardez votre vitesse sur les larges courbes.',
     palette: { sky: '#e5a985', water: '#cd633d', ground: '#6f665c', road: '#5b5554', accent: '#ffb15d' },
-    anchors: [[0,-185],[126,-154],[188,-63],[166,43],[86,115],[0,169],[-110,156],[-183,70],[-178,-20],[-113,-60],[-99,-127]],
-    zones: [{ kind: 'boost', start: .08, end: .1, offset: 0, width: 10 },
+    anchors: [[0,-190],[110,-180],[190,-120],[205,-30],[160,45],[80,62],[38,115],[70,170],[70,215],[20,240],[-60,210],[-120,145],[-195,100],[-215,15],[-170,-55],[-185,-130],[-110,-180]],
+    zones: [{ kind: 'boost', start: .04, end: .06, offset: 0, width: 10 },
       { kind: 'mud', start: .4, end: .44, offset: 6.5, width: 8 },
       { kind: 'boost', start: .61, end: .63, offset: 0, width: 10 },
       { kind: 'boost', start: .86, end: .88, offset: -4, width: 8 }],
-    elevations: [{ kind: 'bridge', start: .18, end: .31, height: 5, approach: 50 },
-      { kind: 'jump', start: .323, end: .34, height: 2.1, approach: 0, launchSpeed: 7.2 }],
+    elevations: [{ kind: 'bridge', start: .48, end: .58, height: 5, approach: 50 },
+      { kind: 'jump', start: .93, end: .945, height: 2.1, approach: 0, launchSpeed: 7.2 }],
+    relief: [[0.96,2],[0.05,2],[0.2,8],[0.36,13],[0.48,16],[0.58,16],[0.7,8],[0.84,3]],
   }),
   makeTrack({ id: 'forest', name: 'Forêt des géants', theme: 'forest', difficulty: 'Intermédiaire', width: 22, grip: .99,
-    description: 'De longues courbes entre des séquoias, un pont de bois au-dessus du ruisseau et un saut de racines. Les bandes boueuses laissent une trajectoire sèche.',
+    description: 'Des courbes vallonnées entre les séquoias, un pont de bois au-dessus du ruisseau et un saut de racines. Les bandes boueuses laissent une trajectoire sèche.',
     palette: { sky: '#cbdcc2', water: '#7dada4', ground: '#80a070', road: '#697463', accent: '#dec77c' },
-    anchors: [[0,-201],[100,-188],[174,-130],[154,-46],[112,22],[147,96],[95,172],[6,199],[-80,168],[-139,106],[-113,32],[-160,-51],[-151,-137],[-75,-189]],
+    anchors: [[0,-200],[100,-190],[180,-140],[205,-55],[180,30],[115,80],[85,145],[120,205],[90,265],[15,285],[-55,245],[-75,180],[-135,150],[-195,110],[-205,35],[-155,-15],[-150,-80],[-165,-135],[-125,-180],[-60,-198]],
     zones: [{ kind: 'mud', start: .13, end: .17, offset: 6.5, width: 8 },
       { kind: 'boost', start: .32, end: .34, offset: -3, width: 9 },
       { kind: 'mud', start: .69, end: .73, offset: -6.5, width: 8 },
       { kind: 'boost', start: .79, end: .81, offset: 0, width: 9 }],
-    elevations: [{ kind: 'bridge', start: .46, end: .58, height: 4.5, approach: 45 },
-      { kind: 'jump', start: .174, end: .194, height: 1.6, approach: 0, launchSpeed: 6.3 }],
+    elevations: [{ kind: 'bridge', start: .46, end: .56, height: 4.5, approach: 45 },
+      { kind: 'jump', start: .93, end: .945, height: 1.6, approach: 0, launchSpeed: 6.3 }],
+    relief: [[.96, 4], [.05, 4], [.18, 9], [.32, 3], [.46, 6], [.56, 6], [.7, 11], [.86, 5]],
   }),
   makeTrack({ id: 'harbor', name: 'Port des cargos', theme: 'harbor', difficulty: 'Facile', width: 24, grip: 1.05,
-    description: 'Les grands quais offrent de l’espace pour dépasser. Traversez le pont métallique, longez les grues et sautez le tremplin de chargement.',
+    description: 'Les grands quais offrent de l’espace pour dépasser. Traversez le pont métallique, contournez le bassin et sautez le tremplin de chargement.',
     palette: { sky: '#c8e3e8', water: '#458b9d', ground: '#b8b9a3', road: '#667b85', accent: '#f2c96b' },
-    anchors: [[0,-132],[135,-132],[218,-111],[239,-49],[226,53],[169,124],[64,130],[-68,129],[-175,118],[-218,63],[-219,-40],[-183,-113],[-99,-132]],
-    zones: [{ kind: 'boost', start: .07, end: .095, offset: -4, width: 10 },
+    anchors: [[0,-140],[130,-140],[230,-110],[250,-30],[205,40],[135,62],[85,100],[90,155],[65,205],[-10,220],[-100,195],[-185,170],[-240,110],[-245,10],[-210,-90],[-120,-140]],
+    zones: [{ kind: 'boost', start: .04, end: .06, offset: -4, width: 10 },
       { kind: 'ice', start: .48, end: .52, offset: 6, width: 8 },
       { kind: 'boost', start: .64, end: .665, offset: 0, width: 10 },
       { kind: 'boost', start: .88, end: .9, offset: 4, width: 10 }],
-    elevations: [{ kind: 'bridge', start: .26, end: .4, height: 6, approach: 60 },
-      { kind: 'jump', start: .487, end: .506, height: 2.4, approach: 0, launchSpeed: 7.8 }],
+    elevations: [{ kind: 'bridge', start: .47, end: .57, height: 6, approach: 60 },
+      { kind: 'jump', start: .93, end: .945, height: 2.4, approach: 0, launchSpeed: 7.8 }],
+    relief: [[0.95,0],[0.06,0],[0.2,3],[0.36,5],[0.47,2],[0.57,2],[0.7,1],[0.86,3]],
   }),
   makeTrack({ id: 'sky', name: 'Archipel céleste', theme: 'sky', difficulty: 'Technique', width: 24, grip: 1,
-    description: 'Un looping magnétique dans les nuages, deux ponts et un grand saut sur un parcours en aile. Le rail magnétique vous retient même à petite vitesse.',
+    description: 'Un parcours en aile entre les îlots flottants : deux ponts, un grand saut et des crêtes où la route plonge sous vos roues.',
     palette: { sky: '#c5deef', water: '#bdd9ed', ground: '#d1dfaa', road: '#9ca5b5', accent: '#c49be2' },
-    anchors: [[0,-180],[125,-180],[211,-120],[188,-21],[115,43],[37,154],[-39,201],[-122,153],[-146,57],[-213,-11],[-207,-100],[-127,-169]],
-    zones: [{ kind: 'boost', start: .06, end: .08, offset: 0, width: 10 },
+    anchors: [[0,-180],[125,-180],[215,-130],[215,-35],[140,25],[160,110],[90,175],[-5,165],[-70,110],[-135,125],[-215,75],[-225,-25],[-205,-115],[-125,-170]],
+    zones: [{ kind: 'boost', start: .04, end: .06, offset: 0, width: 10 },
       { kind: 'boost', start: .38, end: .4, offset: 0, width: 11 },
       { kind: 'ice', start: .53, end: .565, offset: 6.5, width: 8 },
       { kind: 'boost', start: .84, end: .86, offset: -4, width: 10 }],
-    loops: [{ start: .013, end: .079, height: 32, lateralSpread: 24 }],
-    elevations: [{ kind: 'bridge', start: .13, end: .28, height: 7, approach: 70 },
-      { kind: 'jump', start: .29, end: .305, height: 2.3, approach: 0, launchSpeed: 8.2 },
-      { kind: 'bridge', start: .63, end: .76, height: 5.5, approach: 55 }],
+    elevations: [{ kind: 'bridge', start: .07, end: .16, height: 6, approach: 60 },
+      { kind: 'bridge', start: .19, end: .28, height: 5.5, approach: 55 },
+      { kind: 'jump', start: .93, end: .945, height: 2.3, approach: 0, launchSpeed: 8.2 }],
+    relief: [[0.95,5],[0.03,5],[0.07,7],[0.16,7],[0.19,6],[0.28,6],[0.42,10],[0.56,5],[0.7,9],[0.86,10]],
   }),
   makeTrack({ id: 'foundry', name: 'Fonderie des pistons', theme: 'foundry', difficulty: 'Intermédiaire', width: 22, grip: 1.03,
-    description: 'Un looping magnétique d’essai, un tracé en coude entre les hauts-fourneaux et une passerelle industrielle. Freinez avant les plaques de refroidissement.',
+    description: 'Un tracé en coudes entre les hauts-fourneaux, une passerelle industrielle et une rampe d’essai. Freinez avant les plaques de refroidissement.',
     palette: { sky: '#d6bbae', water: '#8f7f73', ground: '#a08f75', road: '#626665', accent: '#eeb04e' },
-    anchors: [[0,-166],[123,-166],[193,-111],[184,-34],[116,1],[53,22],[36,107],[-11,165],[-103,154],[-174,90],[-183,-12],[-139,-112],[-73,-159]],
-    zones: [{ kind: 'boost', start: .08, end: .105, offset: 0, width: 10 },
+    anchors: [[0,-170],[120,-170],[195,-120],[185,-40],[115,0],[100,70],[150,125],[125,185],[45,205],[-30,185],[-95,180],[-160,140],[-185,50],[-150,-20],[-185,-90],[-140,-150],[-70,-170]],
+    zones: [{ kind: 'boost', start: .04, end: .06, offset: 0, width: 10 },
       { kind: 'ice', start: .25, end: .29, offset: -6, width: 8 },
       { kind: 'mud', start: .57, end: .61, offset: 6.5, width: 8 },
       { kind: 'boost', start: .69, end: .715, offset: 0, width: 10 }],
-    loops: [{ start: .013, end: .079, height: 27, lateralSpread: 22 }],
-    elevations: [{ kind: 'bridge', start: .35, end: .47, height: 5, approach: 50 },
-      { kind: 'jump', start: .697, end: .715, height: 2, approach: 0, launchSpeed: 7.6 }],
+    elevations: [{ kind: 'bridge', start: .35, end: .45, height: 5, approach: 50 },
+      { kind: 'jump', start: .93, end: .945, height: 2, approach: 0, launchSpeed: 7.6 }],
+    relief: [[.95, 1], [.06, 1], [.2, 6], [.35, 3], [.45, 3], [.6, 8], [.76, 2], [.88, 5]],
   }),
   makeTrack({ id: 'castle', name: 'Citadelle royale', theme: 'castle', difficulty: 'Facile', width: 24, grip: 1.02,
-    description: 'Un large tour des remparts, un pont de pierre sur les douves et un saut de parade. Les grandes courbes invitent aux dépassements et aux mini-turbos.',
+    description: 'Le tour des remparts monte vers le donjon, traverse un pont de pierre sur les douves et redescend par un saut de parade. Les grandes courbes invitent aux dépassements et aux mini-turbos.',
     palette: { sky: '#dbe2ee', water: '#6d9ba8', ground: '#aabd83', road: '#8d9293', accent: '#b18ac8' },
-    anchors: [[0,-179],[102,-170],[166,-115],[174,-27],[126,35],[153,107],[98,165],[1,181],[-92,166],[-154,106],[-127,30],[-177,-40],[-150,-130],[-70,-174]],
-    zones: [{ kind: 'boost', start: .07, end: .09, offset: -4, width: 10 },
+    anchors: [[0,-185],[105,-180],[180,-130],[170,-45],[205,35],[150,105],[70,90],[20,150],[-60,185],[-140,150],[-150,70],[-205,10],[-180,-70],[-125,-120],[-75,-180]],
+    zones: [{ kind: 'boost', start: .04, end: .06, offset: -4, width: 10 },
       { kind: 'mud', start: .43, end: .47, offset: 7, width: 8 },
-      { kind: 'boost', start: .61, end: .64, offset: 0, width: 10 },
+      { kind: 'boost', start: .58, end: .61, offset: 0, width: 10 },
       { kind: 'boost', start: .86, end: .885, offset: 4, width: 10 }],
-    elevations: [{ kind: 'bridge', start: .22, end: .35, height: 4, approach: 40 },
-      { kind: 'jump', start: .516, end: .536, height: 1.8, approach: 0, launchSpeed: 6.8 }],
+    elevations: [{ kind: 'bridge', start: .14, end: .24, height: 4, approach: 40 },
+      { kind: 'jump', start: .635, end: .65, height: 1.8, approach: 0, launchSpeed: 6.8 }],
+    relief: [[0.95,3],[0.06,3],[0.14,8],[0.24,8],[0.48,14],[0.62,6],[0.8,1]],
   }),
 ];
 const customTracks = new Map<string, TrackDefinition>();
@@ -268,17 +298,37 @@ export function isTrackId(id: unknown): id is TrackId {
   return typeof id === 'string' && ((TRACK_IDS as readonly string[]).includes(id) || customTracks.has(id));
 }
 export function getTrack(id = 'lagon'): TrackDefinition { return previewTracks.get(id) ?? customTracks.get(id) ?? TRACKS.find(track => track.id === id) ?? TRACKS[0]!; }
+function reliefSpan(wrapped: number, track: TrackDefinition): { from: TrackReliefPoint; to: TrackReliefPoint; span: number; t: number } {
+  const relief = track.relief!;
+  let index = relief.length - 1;
+  for (let i = 0; i < relief.length && relief[i]!.at <= wrapped; i++) index = i;
+  const from = relief[index]!, to = relief[(index + 1) % relief.length]!;
+  const span = (to.at - from.at + track.length) % track.length || track.length;
+  return { from, to, span, t: ((wrapped - from.at + track.length) % track.length) / span };
+}
+/** Height of the natural ground along the route, without bridges, ramps or crossings. */
+export function reliefElevation(progress: number, track: TrackDefinition): number {
+  if (!track.relief?.length) return 0;
+  const { from, to, t } = reliefSpan(((progress % track.length) + track.length) % track.length, track);
+  return from.height + (to.height - from.height) * t * t * (3 - 2 * t);
+}
+/** Rise per metre of the natural ground: positive when the route climbs. */
+export function reliefSlope(progress: number, track: TrackDefinition): number {
+  if (!track.relief?.length) return 0;
+  const { from, to, span, t } = reliefSpan(((progress % track.length) + track.length) % track.length, track);
+  return (to.height - from.height) * 6 * t * (1 - t) / span;
+}
 /** Original relief, before derived crossing offsets. Kept independent of registration. */
 export function baseTrackElevation(progress: number, track: TrackDefinition): number {
-  const wrapped = ((progress % track.length) + track.length) % track.length;
-  const loop = track.loops.find(loop => wrapped >= loop.start && wrapped <= loop.end);
-  if (loop) return loop.height * Math.sin(Math.PI * (wrapped - loop.start) / (loop.end - loop.start)) ** 2;
+  // Adding a whole lap before the modulo would round a ramp's exact lip past its end.
+  const remainder = progress % track.length, wrapped = remainder < 0 ? remainder + track.length : remainder;
+  const ground = reliefElevation(wrapped, track);
   const feature = track.elevations.find(feature => wrapped >= feature.start && wrapped <= feature.end);
-  if (!feature) return 0;
-  if (feature.kind === 'jump') return feature.height * (wrapped - feature.start) / (feature.end - feature.start);
+  if (!feature) return ground;
+  if (feature.kind === 'jump') return ground + feature.height * (wrapped - feature.start) / (feature.end - feature.start);
   const ramp = Math.min(feature.approach, (feature.end - feature.start) / 2);
   const t = Math.max(0, Math.min(1, (wrapped - feature.start) / ramp, (feature.end - wrapped) / ramp));
-  return feature.height * t * t * (3 - 2 * t);
+  return ground + feature.height * t * t * (3 - 2 * t);
 }
 export function trackElevation(progress: number, trackId = 'lagon'): number {
   const track = getTrack(trackId);
@@ -288,7 +338,7 @@ export function trackSlope(progress: number, trackId = 'lagon'): number {
   const track = getTrack(trackId);
   const wrapped = ((progress % track.length) + track.length) % track.length;
   const feature = track.elevations.find(feature => wrapped >= feature.start && wrapped <= feature.end);
-  if (!track.crossings?.length) {
+  if (!track.crossings?.length && !track.relief?.length) {
     if (!feature) return 0;
     if (feature.kind === 'jump') return feature.height / (feature.end - feature.start);
   }
@@ -315,13 +365,68 @@ function pointOnTrack(progress: number, track: TrackDefinition): Vec2 & { angle:
 export function trackPoint(progress: number, trackId = 'lagon'): Vec2 & { angle: number } {
   return pointOnTrack(progress, getTrack(trackId));
 }
+const BANK_STEP = 2;
+const bankTables = new WeakMap<TrackDefinition, Float32Array>();
+/** Sideways tilt of the official roads in their bends: rise per metre towards the
+ * right-hand edge. Rendering only; the simulation keeps a level cross-section. */
+export function trackBank(progress: number, track: TrackDefinition): number {
+  if (track.id.startsWith('custom-')) return 0;
+  let table = bankTables.get(track);
+  if (!table) {
+    const count = Math.max(2, Math.ceil(track.length / BANK_STEP)), raw = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const at = i * track.length / count;
+      const turn = pointOnTrack(at + 8, track).angle - pointOnTrack(at - 8, track).angle;
+      // Level decks and ramps: their structures are built from straight boxes.
+      const structure = Math.min(Infinity, ...track.elevations.map(feature => Math.max(feature.start - at, at - feature.end, 0)));
+      const ease = Math.max(0, Math.min(1, (structure - 4) / 24));
+      raw[i] = -Math.max(-.085, Math.min(.085, Math.atan2(Math.sin(turn), Math.cos(turn)) / 16 * 3.4)) * ease * ease * (3 - 2 * ease);
+    }
+    table = new Float32Array(count);
+    for (let i = 0; i < count; i++) { let sum = 0; for (let k = -6; k <= 6; k++) sum += raw[(i + k + count) % count]!; table[i] = sum / 13; }
+    bankTables.set(track, table);
+  }
+  const position = (((progress % track.length) + track.length) % track.length) / track.length * table.length;
+  const index = Math.floor(position) % table.length, t = position - Math.floor(position);
+  return table[index]! * (1 - t) + table[(index + 1) % table.length]! * t;
+}
 export interface TrackPositionHint { progress?: number; elevation?: number }
 export function nearestTrack(x: number, z: number, trackId = 'lagon', hint?: TrackPositionHint): Vec2 & { distance: number; progress: number; index: number; angle: number } {
   const track = getTrack(trackId);
-  const { lengths, cumulative } = arcTables.get(track)!;
+  const table = arcTables.get(track)!, { lengths, cumulative } = table;
   let result = { x: 0, z: 0, distance: Infinity, progress: 0, index: 0, angle: 0 };
   let bestSquared = Infinity;
   const layered = !!track.crossings?.length && !!hint;
+  if (!layered && Number.isFinite(x) && Number.isFinite(z)) {
+    // Same answer as the full scan below, lowest segment first on a tie, reached
+    // by widening rings of cells until none left unvisited could be closer.
+    const grid = segmentGrid(track, table), column = Math.floor((x - grid.x) / GRID_CELL), row = Math.floor((z - grid.z) / GRID_CELL);
+    let best = -1, bestT = 0, bestX = 0, bestZ = 0;
+    for (let ring = 0; ring <= 8; ring++) {
+      for (let cellRow = row - ring; cellRow <= row + ring; cellRow++) {
+        if (cellRow < 0 || cellRow >= grid.rows) continue;
+        const edge = cellRow === row - ring || cellRow === row + ring;
+        for (let cellColumn = column - ring; cellColumn <= column + ring; cellColumn += edge ? 1 : Math.max(1, ring * 2)) {
+          if (cellColumn < 0 || cellColumn >= grid.columns) continue;
+          for (const i of grid.cells[cellRow * grid.columns + cellColumn]!) {
+            const a = track.points[i]!, b = track.points[(i + 1) % track.points.length]!;
+            const dx = b.x - a.x, dz = b.z - a.z, segmentSquared = dx * dx + dz * dz;
+            if (segmentSquared < 1e-14) continue;
+            const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / segmentSquared));
+            // Written exactly as in the scan: a shared vertex must round the same way.
+            const px = a.x + dx * t, pz = a.z + dz * t, squared = (x - px) ** 2 + (z - pz) ** 2;
+            if (squared < bestSquared || squared === bestSquared && i < best) { bestSquared = squared; best = i; bestT = t; bestX = px; bestZ = pz; }
+          }
+        }
+      }
+      if (best >= 0 && bestSquared <= (ring * GRID_CELL) ** 2) {
+        const a = track.points[best]!, b = track.points[(best + 1) % track.points.length]!, dx = b.x - a.x, dz = b.z - a.z;
+        return { x: bestX, z: bestZ, distance: Math.sqrt(bestSquared), progress: cumulative[best]! + lengths[best]! * bestT,
+          index: best, angle: Math.atan2(dx, dz) };
+      }
+    }
+    bestSquared = Infinity; // Far from the island: the plain scan below decides.
+  }
   const wrappedHint = hint?.progress === undefined ? undefined : ((hint.progress % track.length) + track.length) % track.length;
   for (let i = 0; i < track.points.length; i++) {
     const a = track.points[i]!;

@@ -4,8 +4,7 @@ import type { World } from '../shared/game';
 import { trackElevation, TRACK_LAYOUT_REVISION } from '../shared/track';
 import { nearestDriveableTrack } from '../shared/track-events';
 import { replayPosition } from './replay-view';
-import { kartLoopPose, trackLoopAt } from '../shared/track-loop';
-import { applyLoopOrientation } from './track-loops';
+import { groundLift } from '../shared/road-pose';
 
 /** A translucent marker follows recorded server positions; it never enters the simulation. */
 export class GhostView {
@@ -31,11 +30,8 @@ export class GhostView {
       const near = nearestDriveableTrack(point.x, point.z, world.trackId, world.eventStage, world.eventLevel,
         { progress: this.routeProgress, elevation: this.routeProgress === undefined ? undefined : trackElevation(this.routeProgress, world.trackId) });
       this.routeProgress = near.progress; this.lastTime = world.raceTime;
-      const pose = kartLoopPose({ ...point, trackId: world.trackId, elevation: trackElevation(near.progress, world.trackId),
-        routeProgress: near.progress,
-        loopId: near.branchId ? '' : trackLoopAt(near.progress, world.trackId)?.id ?? '' });
-      this.group.position.set(pose.x + pose.up.x * .12, pose.y + pose.up.y * .12, pose.z + pose.up.z * .12);
-      applyLoopOrientation(this.group, pose);
+      this.group.position.set(point.x, trackElevation(near.progress, world.trackId) + groundLift(point.x, point.z, world.trackId) + .12, point.z);
+      this.group.rotation.y = point.angle;
     }
   }
 }

@@ -181,7 +181,7 @@ for (const track of TRACKS) test(track.id + ': eight ordinary drivers finish wit
   world.players = Array.from({ length: 8 }, (_, index) => createKart('dynamic-' + index, 'Pilote ' + index, COLORS[index]!, index, track.id));
   startRace(world);
   const phases = new Set<number>(), detourDrivers = new Set<string>(); let resets = 0;
-  for (let tick = 0; tick < 30 * 160 && world.phase !== 'finished'; tick++) {
+  for (let tick = 0; tick < 30 * 240 && world.phase !== 'finished'; tick++) {
     stepWorld(world, new Map(world.players.map(kart => { const input = autopilot(kart, tick, true); resets += Number(input.reset); return [kart.id, input]; })), 1 / 30);
     phases.add(world.eventStage);
     if (tick % 6 !== 0 || world.eventStage === 0) continue;

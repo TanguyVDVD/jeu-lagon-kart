@@ -129,7 +129,7 @@ try {
     const update = (room as unknown as { update(deltaMs: number): void }).update.bind(room);
     room.setSimulationInterval(() => {}, 1000 / config.simHz);
     Object.assign(kart, placed, { angle: warning.angle, speed: 0, turnVelocity: 0, lateralVelocity: 0,
-      elevation: 0, verticalVelocity: 0, airborne: false, loopId: '', stun: 0, boost: 0 });
+      elevation: 0, verticalVelocity: 0, airborne: false, stun: 0, boost: 0 });
     await page.setViewportSize({ width: 390, height: 844 });
     await until(async () => { const view = (await debug()).view; return !!view.tracked && Math.hypot(view.tracked.position[0] - placed.x, view.tracked.position[2] - placed.z) < .2; }, 'Fixture pancarte reçue');
     await wait(1400);

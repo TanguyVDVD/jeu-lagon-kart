@@ -24,9 +24,9 @@ test('private previews never become selectable circuits and release their defini
 });
 
 test('direct module placement preserves complete intervals, independent trigger and finite lane bounds',()=>{
-  const source=draft();source.elevations=[{kind:'bridge',start:.2,end:.3,height:3,approach:10}];source.loops=[{start:.4,end:.5,height:20,lateralSpread:15}];
+  const source=draft();source.elevations=[{kind:'bridge',start:.2,end:.3,height:3,approach:10}];
   source.events=[{lap:2,kind:'rain',start:.6,end:.7}];source.interactions=[{kind:'boost',trigger:.1,start:.25,end:.29,width:8,offset:0,duration:10}];
-  for(const group of ['zones','elevations','loops','events','interactions'] as const){
+  for(const group of ['zones','elevations','events','interactions'] as const){
     const selection={group,index:0},feature=customTrackModule(source,selection)!,length=feature.end-feature.start;
     for(const requested of [.48,2,-1]){assert.equal(moveCustomTrackModule(source,selection,requested),true);assert.ok(Math.abs(feature.end-feature.start-length)<1e-12);assert.ok(feature.start>=0&&feature.end<=1+1e-12);}
   }
@@ -62,15 +62,15 @@ test('private draft rooms hydrate only their owner, never persist and cannot lea
     await rm(directory,{recursive:true,force:true});});
   await gameServer.listen(0,'127.0.0.1');const address=httpServer.address();assert.ok(address&&typeof address!=='string');
   const origin=`http://127.0.0.1:${address.port}`,sdk=new Client(origin.replace('http:','ws:')),players=await playerStore(),author=await players.createPlayer('Atelier privé');
-  const source=draft();source.loops=[{start:.56,end:.65,height:24,lateralSpread:20}];
+  const source=draft();source.elevations=[{kind:'bridge',start:.56,end:.65,height:6,approach:20}];
   const original=structuredClone(source),before=players.getProfile(author.profile.id);
-  const peer=observe(await sdk.create('race',{practice:true,previewDraft:source,workshop:{group:'loops',index:0},token:author.token}));peers.push(peer);
+  const peer=observe(await sdk.create('race',{practice:true,previewDraft:source,workshop:{group:'elevations',index:0},token:author.token}));peers.push(peer);
   await until(()=>!!peer.preview&&!!peer.world,'preview source arrives');const id=peer.world!.trackId;
   assert.match(id,/^custom-private-/);assert.deepEqual(peer.preview!.draft,original);assert.equal(isTrackId(id),false);assert.equal(isPreviewTrackId(id),true);
   assert.equal(store.list().length,0);assert.deepEqual(await readdir(join(directory,'tracks')),[]);
   await assert.rejects(sdk.create('race',{trackId:id}),/inconnu/);await assert.rejects(sdk.create('race',{practice:true,trackId:id}),/inconnu/);
   await assert.rejects(sdk.create('race',{practice:false,previewDraft:source}),/solo privé/);
-  await assert.rejects(sdk.create('race',{practice:true,previewDraft:source,workshop:{group:'loops',index:999}}),/module existant/);
+  await assert.rejects(sdk.create('race',{practice:true,previewDraft:source,workshop:{group:'elevations',index:999}}),/module existant/);
   await assert.rejects(sdk.joinById(peer.room.roomId,{}));
   const missing=await fetch(`${origin}/api/tracks/${id}`);assert.equal(missing.status,404);
   peer.room.send('tracksReady',{ids:[id]});await until(()=>peer.preview===undefined,'preview acknowledgement');
