@@ -82,13 +82,23 @@ export class MobileControls {
   constructor(private readonly activateAudio: () => void) {
     try { this.state.autoAccelerate = localStorage.getItem('lagon-touch-auto') !== 'false'; } catch { /* Storage may be unavailable in private browsing. */ }
     this.updatePreference();
-    const media = matchMedia('(any-pointer: coarse)');
+    // A touchscreen laptop is still a keyboard PC: the touch layout is used when
+    // touch is the main pointer (phone, tablet) or once the screen is really
+    // touched, and a key press on such a PC returns to the desktop layout.
+    const media = matchMedia('(pointer: coarse)');
+    let touched = false;
     const detect = () => {
-      this.available = media.matches || navigator.maxTouchPoints > 0;
+      this.available = media.matches || touched;
       document.body.classList.toggle('touch-device', this.available);
       this.setDriving(this.driving);
     };
     media.addEventListener('change', detect); detect();
+    window.addEventListener('pointerdown', event => { if (event.pointerType === 'touch' && !touched) { touched = true; detect(); } }, { capture: true, passive: true });
+    window.addEventListener('keydown', event => {
+      if (!touched || media.matches || !event.isTrusted || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.target instanceof HTMLElement && event.target.matches('input, textarea, select')) return;
+      touched = false; detect();
+    });
     this.auto.addEventListener('click', () => {
       this.setAutoAcceleration(!this.state.autoAccelerate); this.activateAudio();
     });

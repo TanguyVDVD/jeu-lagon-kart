@@ -23,8 +23,14 @@ enfoncé n’épuise pas les charges. L’inventaire reste occupé jusqu’à la
 ## Tirages et impacts
 
 Le serveur tire un objet quand un pilote connecté, actif et sans objet traverse
-un cube disponible. Le cube se recharge après 7 s. Aucun nouveau tirage ne peut
+un cube disponible. Le cube se recharge après 4 s. Aucun nouveau tirage ne peut
 écraser l’objet tenu, y compris les charges restantes du triple turbo.
+
+Pendant les 6 premières secondes de course, le peloton est encore groupé : un
+cube ne donne alors qu’un turbo (60 %) ou un bouclier (40 %). Quand un événement
+barre la route principale, les rangées de cubes de ce tronçon passent sur la
+déviation en conservant leur recharge ; aucune rangée n’est posée dans la
+trajectoire d’un saut.
 
 Poids en pourcentage, dans l’ordre de la table ci-dessus :
 

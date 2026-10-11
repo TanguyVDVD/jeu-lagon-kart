@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { autopilot } from '../shared/autopilot.js';
-import { CHECKPOINTS, COLORS, FINISH_GRACE_SECONDS, ITEMS, MAX_RACE_SECONDS, ROAD_WIDTH, TOTAL_LAPS,
+import { CHECKPOINTS, COLORS, FINISH_GRACE_SECONDS, ITEMS, MAX_RACE_SECONDS, PICKUP_RESPAWN_SECONDS, ROAD_WIDTH, TOTAL_LAPS,
   TRACK_LENGTH, createKart, createWorld, nearestTrack, neutralInput, resetKart, spawnPoint,
   standings, startRace, stepKart, stepWorld, trackPoint, validateInput, type Input, type World } from '../shared/game.js';
 
@@ -121,7 +121,7 @@ test('server assigns pickups and a held item button cannot consume newly collect
   world.pickups = [{ id: 'box', x: kart.x, z: kart.z, cooldown: 0 }];
   stepWorld(world, new Map(), dt);
   assert.ok(ITEMS.includes(kart.item as typeof ITEMS[number]));
-  assert.equal(world.pickups[0]!.cooldown, 7);
+  assert.equal(world.pickups[0]!.cooldown, PICKUP_RESPAWN_SECONDS);
   kart.item = 'turbo';
   const held = { ...neutralInput(), use: true };
   stepWorld(world, new Map([[kart.id, held]]), dt);

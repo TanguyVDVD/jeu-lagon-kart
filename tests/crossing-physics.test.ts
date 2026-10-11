@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CUSTOM_TRACK_TEMPLATES, registerCustomTrack, type CustomTrackDraft } from '../shared/custom-tracks.js';
-import { createKart, createWorld, neutralInput, resetKart, startRace, stepKart, stepWorld, type Kart } from '../shared/game.js';
+import { PICKUP_RESPAWN_SECONDS, createKart, createWorld, neutralInput, resetKart, startRace, stepKart, stepWorld, type Kart } from '../shared/game.js';
 import { nearestTrack, trackElevation, trackPoint, type TrackDefinition } from '../shared/track.js';
 import { autopilot } from '../shared/autopilot.js';
 import { nearestDriveableTrack } from '../shared/track-events.js';
@@ -59,7 +59,7 @@ test('karts, traps and mystery boxes cannot interact through an overpass', () =>
   stepWorld(world, new Map(), 1 / 30);
   assert.equal(low.item, ''); assert.equal(world.pickups[0]!.cooldown, 0);
   world.players = [high]; stepWorld(world, new Map(), 1 / 30);
-  assert.notEqual(high.item, ''); assert.equal(world.pickups[0]!.cooldown, 7);
+  assert.notEqual(high.item, ''); assert.equal(world.pickups[0]!.cooldown, PICKUP_RESPAWN_SECONDS);
   const victim = driver(road, 'same-floor', crossing.lowerProgress); victim.speed = 0;
   world.players = [low, victim]; world.pickups = [];
   low.spectator = true;

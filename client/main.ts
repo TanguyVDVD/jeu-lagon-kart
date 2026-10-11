@@ -112,12 +112,19 @@ let resetPressed = false;
 const mobileControls = new MobileControls(() => audio.activate());
 type Snapshot = { world: World; serverTime: number; tick: number; simHz: number; tracks?: StoredCustomTrack[]; previewTrack?: CustomTrackPreview };
 const snapshots: { at: number; world: World }[] = [];
+// The local kart is drawn ahead of the server: a cube it touches disappears at
+// once and the item slot spins until the authoritative draw arrives.
+const collectedPickups = new Map<string, number>();
+const itemRoll = ['turbo', 'projectile', 'shield', 'trap', 'star', 'seeker'] as const;
+let itemRollUntil = 0;
+let predictedRound = -1;
 let serverClockOffset = 0;
 const garage = new GarageUI(choice => {
   renderer.setPreviewKart(chosenColor, choice.modelId, choice.characterId);
   if (room && world?.phase === 'lobby') room.send('profile', choice);
 });
 renderer.setPreviewKart(chosenColor, garage.value.modelId, garage.value.characterId);
+renderer.collectedPickups = collectedPickups;
 const career: CareerUI = new CareerUI({
   canQueue: () => !busy && !room && !reconnecting && !trackEditor.isOpen,
   prepareRanked: ensureCareer,
@@ -256,7 +263,7 @@ function profile() {
   return { name: chosenName, color: chosenColor, ...garage.value };
 }
 function clearControls() { keys.clear(); usePressed = false; resetPressed = false; mobileControls.clear(); }
-function resetPrediction() { pending = []; predicted = null; snapshots.length = 0; accumulator = 0; correction = { x: 0, z: 0 }; epoch = -1; sequence = 0; clearControls(); }
+function resetPrediction() { collectedPickups.clear(); itemRollUntil = 0; pending = []; predicted = null; snapshots.length = 0; accumulator = 0; correction = { x: 0, z: 0 }; epoch = -1; sequence = 0; clearControls(); }
 function saveSession() {
   if (room) sessionStorage.setItem('lagon-session', JSON.stringify({ token: room.reconnectionToken, roomId: room.roomId }));
 }
@@ -314,7 +321,10 @@ function attachRoom(next: Room) {
     snapshots.push({ at: snapshot.serverTime + serverClockOffset, world });
     while (snapshots.length > 40) snapshots.shift();
     const me = world.players.find(player => player.id === next.sessionId);
+    // A new start (or a workshop restart) never replays commands of the previous run.
+    if (world.round !== predictedRound) { predictedRound = world.round; pending = []; correction = { x: 0, z: 0 }; collectedPickups.clear(); itemRollUntil = 0; }
     if (me) {
+      if (me.item) itemRollUntil = 0;
       if (epoch !== me.epoch) { epoch = me.epoch; pending = []; sequence = Math.max(0, me.lastSeq + 1); correction = { x: 0, z: 0 }; accumulator = 0; }
       pending = pending.filter(input => input.epoch === epoch && input.seq > me.lastSeq).slice(-90);
       const previous = predicted;
@@ -584,11 +594,12 @@ function updateUI(now: number, force = false) {
       el('race-time').textContent = formatTime(world.raceTime);
       el('speed').textContent = String(Math.round(Math.abs(speed) * 3.6));
       const item = me?.item ?? '';
-      mobileControls.setItem(itemIcons[item], itemNames[item], itemColors[item], !!item);
-      el('item-icon').textContent = itemIcons[item]; el('item-icon').style.color = itemColors[item];
-      el('item-name').textContent = itemNames[item] + (item === 'tripleTurbo' ? ` · ${me?.itemCharges ?? 3}/3` : '');
-      el('item-hint').textContent = item ? `E · ${itemHints[item]}` : itemHints[''];
-      el('item-card').classList.toggle('has-item', !!item);
+      const rolling = !item && itemRollUntil > now, shown = rolling ? itemRoll[Math.floor(now / 100) % itemRoll.length]! : item;
+      mobileControls.setItem(itemIcons[shown], itemNames[item], itemColors[shown], !!item);
+      el('item-icon').textContent = itemIcons[shown]; el('item-icon').style.color = itemColors[shown];
+      el('item-name').textContent = rolling ? 'Tirage…' : itemNames[item] + (item === 'tripleTurbo' ? ` · ${me?.itemCharges ?? 3}/3` : '');
+      el('item-hint').textContent = rolling ? 'Votre objet arrive' : item ? `E · ${itemHints[item]}` : itemHints[''];
+      el('item-card').classList.toggle('has-item', !!item || rolling);
       const effects = [me && me.invincible > 0 ? `★ Invincible ${me.invincible.toFixed(1)} s` : '',
         me && me.shield > 0 ? `◈ Bouclier ${me.shield.toFixed(1)} s` : ''].filter(Boolean);
       el('item-effect').textContent = effects.join(' · '); show('item-effect', effects.length > 0);
@@ -623,6 +634,10 @@ function updateUI(now: number, force = false) {
     void career.refresh({ minimumRaces }).catch(() => {});
   }
   if (phase !== previousPhase) {
+    // A garage, replay or picker left open in the lobby would otherwise stay over
+    // the race: it pauses 3D rendering and blocks every driving command.
+    if (racing && previousPhase !== 'countdown' && previousPhase !== 'racing')
+      document.querySelectorAll<HTMLDialogElement>('dialog[open]').forEach(dialog => dialog.close());
     if (!(previousPhase === 'countdown' && phase === 'racing')) clearControls();
     if (!racing) { el('menu').scrollTop = 0; if (phase === 'lobby') document.querySelector('.lobby-scroll')!.scrollTop = 0; }
     previousPhase = phase;
@@ -689,6 +704,17 @@ function drawMap(players: Kart[]) {
   }
 }
 
+function predictPickups(now: number) {
+  for (const [id, until] of collectedPickups) if (until <= now) collectedPickups.delete(id);
+  const me = world?.players.find(player => player.id === room?.sessionId);
+  if (!world || world.phase !== 'racing' || !connected || !predicted || !me || me.item || me.spectator || predicted.finished || itemRollUntil > now) return;
+  const kart = predicted;
+  const touched = world.pickups.find(pickup => pickup.cooldown <= 0 && !collectedPickups.has(pickup.id) &&
+    Math.hypot(kart.x - pickup.x, kart.z - pickup.z) < 2.8 && Math.abs(kart.elevation - (pickup.elevation ?? kart.elevation)) < 2.8);
+  // If the server disagrees (another kart was first), the cube simply returns.
+  if (touched) { collectedPickups.set(touched.id, now + 700); itemRollUntil = now + 700; }
+}
+
 let previousFrame = performance.now();
 function frame(now: number) {
   const hasDialog = !!document.querySelector('dialog[open]');
@@ -701,11 +727,15 @@ function frame(now: number) {
     while (accumulator >= fixedStep && steps < 3) {
       const input = makeInput();
       room.send('input', input);
-      if (world.phase === 'racing') { stepKart(predicted, input, fixedStep); pending.push(input); if (pending.length > 90) pending.shift(); }
+      if (world.phase === 'racing') stepKart(predicted, input, fixedStep);
+      // Commands sent while the "GO" snapshot is still travelling are replayed
+      // on arrival, so the launch is predicted from its very first frame.
+      if (world.phase === 'racing' || world.phase === 'countdown') { pending.push(input); if (pending.length > 90) pending.shift(); }
       accumulator -= fixedStep; steps++;
     }
     if (steps >= 3) accumulator = 0;
   } else accumulator = 0;
+  predictPickups(now);
   const decay = Math.exp(-dt * 11); correction.x *= decay; correction.z *= decay;
   const players = renderPlayers(now);
   renderer.render(world, players, room?.sessionId ?? '', dt, now, { hidden: document.hidden, opaqueDialog: modalOpen });

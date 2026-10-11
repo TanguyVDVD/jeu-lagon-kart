@@ -142,6 +142,8 @@ export class GameRenderer {
   private renderedFrames = 0;
   private renderState: 'race' | 'menu' | 'hidden' | 'dialog' = 'menu';
   private sceneryDetails = { optional: 0, visible: 0 };
+  /** Cubes the local kart has already driven through, ahead of the server. */
+  public collectedPickups: { has(id: string): boolean } = new Set<string>();
 
   get kartAssets() { return kartAssetDiagnostics(); }
   get sceneryAssets() { return sceneryAssetDiagnostics(); }
@@ -180,6 +182,14 @@ export class GameRenderer {
     // The renderer refreshes the shadow map itself, on alternate race frames.
     sun.shadow.autoUpdate = false;
     this.scene.add(sun);
+    // Shaders of effects first shown mid-race (star aura, shield, weather) are
+    // compiled with the menu's first frames, not as a freeze when an item is used.
+    const warmUp = new THREE.Group(); warmUp.position.y = -60;
+    for (const effect of [auraMaterial, shieldMaterial]) { const sample = new THREE.Mesh(boxGeometry, effect); sample.scale.setScalar(.001); warmUp.add(sample); }
+    warmUp.add(new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
+      new THREE.PointsMaterial({ size: .01, transparent: true, opacity: 0, depthWrite: false })));
+    for (const sample of warmUp.children) sample.frustumCulled = false;
+    this.scene.add(warmUp);
     this.demo = this.buildKart('#ff7659', 'À vous la piste');
     this.demo.label.visible = false;
     this.scene.add(this.demo.group);
@@ -585,7 +595,7 @@ export class GameRenderer {
         visual.add(cube, mysteryBadge());
         this.pickups.set(pickup.id, visual); this.scene.add(visual);
       }
-      visual.visible = pickup.cooldown <= 0;
+      visual.visible = pickup.cooldown <= 0 && !this.collectedPickups.has(pickup.id);
       if (!visual.visible) continue;
       visual.position.set(pickup.x, surfaceY(pickup) + 1.6 + Math.sin(now * .003 + pickup.x) * .25, pickup.z);
       visual.rotation.set(.15, now * .0009, .15, 'YXZ');

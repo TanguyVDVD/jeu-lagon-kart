@@ -3,7 +3,7 @@ import { createTournament, type TournamentState } from './tournament.js';
 import { DEFAULT_KART_MODEL, normalizeKartModelId, type KartModelId } from './kart-catalog.js';
 import { DEFAULT_CHARACTER, normalizeCharacterId, type CharacterId } from './characters.js';
 import { DEFAULT_BUILD, normalizeBuild, getKartStats, type KartBuild } from './garage.js';
-import { nearestDriveableTrack, dynamicSurface, constrainTrackEvent, trackEventPickups, eventRoutePoint, eventCheckpointGates, getTrackEvent, trackBoundaryGap } from './track-events.js';
+import { nearestDriveableTrack, dynamicSurface, constrainTrackEvent, trackEventPickups, eventRoutePoint, eventCheckpointGates, getTrackEvent, trackBoundaryGap, pointOnBranch } from './track-events.js';
 import { TRACK_SHOULDER, KART_COLLISION_HEIGHT, trackBoundaryHeight, trackBoundaryShoulder, driveableGroundHeight } from './obstacle-heights.js';
 import { freshRaceFun, railResponse, captureFunMovement, updateRaceFun, recoveryItemWeights, noteItemDraw,
   armTeamRelay, resolveTeamRelays, resetWorldFun, resetRaceFun, interruptRaceFun, type RaceFunFeedback } from './race-fun.js';
@@ -66,6 +66,10 @@ export const MAX_WORLD_OBJECTS = 32;
 export const STAR_SECONDS = 5.5;
 export const SHIELD_SECONDS = 8;
 export const PROJECTILE_TTL = 5;
+/** The grid is still bunched on the first cubes: nobody draws a weapon yet. */
+export const START_GRACE_SECONDS = 6;
+/** Short enough for the karts following a group to find cubes again. */
+export const PICKUP_RESPAWN_SECONDS = 4;
 // The checkpoint corridor must match the shoulder that movement really allows.
 // A smaller gate silently loses an otherwise legal lap at an outside corner.
 
@@ -121,13 +125,45 @@ export function createWorld(practice = false, trackId = 'lagon'): World {
     trackId, tournament: createTournament(trackId), eventStage: 0, eventLevel: 0, teamMode: false, ranked: false, championshipId: '' };
 }
 
+const PICKUP_ROWS = [0.12, 0.36, 0.62, 0.84], PICKUP_OFFSETS = [-3.6, 0, 3.6];
+/** A cube row follows the road that is really open: clear of a jump's flight
+ * path, and moved onto the detour while its stretch of main road is barred. */
+function pickupPlacement(trackId: string, row: number, column: number, stage = 0, level = 0): Pick<Pickup, 'x' | 'z' | 'progress' | 'elevation'> {
+  const track = getTrack(trackId), offset = PICKUP_OFFSETS[column]!;
+  let progress = PICKUP_ROWS[row]! * track.length;
+  const jump = track.elevations.find(feature => feature.kind === 'jump' && progress >= feature.start - 2 && progress <= feature.end + 45);
+  if (jump) progress = Math.min(jump.end + 45, track.length - 20);
+  const event = getTrackEvent(track.id, stage, level);
+  const detour = event.blockers.length ? event.branches.find(route => route.kind === 'detour' && route.open) : undefined;
+  if (detour && progress > detour.start && progress < detour.end) {
+    const metres = (detour.end - detour.start) / detour.length;
+    // Keep clear of the junctions and of the detour's own two cubes.
+    progress = clamp(progress, detour.start + 45 * metres, detour.end - 45 * metres);
+    for (const fraction of [.36, .76]) {
+      const own = detour.start + (detour.end - detour.start) * fraction;
+      if (Math.abs(progress - own) < 9 * metres) progress = own + 9 * metres;
+    }
+    const point = pointOnBranch(detour, progress), across = offset * Math.min(1, (detour.width / 2 - 2.2) / 3.6);
+    return { x: point.x + Math.cos(point.angle) * across, z: point.z - Math.sin(point.angle) * across,
+      progress, elevation: trackElevation(progress, track.id) };
+  }
+  const point = trackPoint(progress, track.id);
+  return { x: point.x + Math.cos(point.angle) * offset, z: point.z - Math.sin(point.angle) * offset,
+    progress, elevation: trackElevation(progress, track.id) };
+}
+
 function makePickups(trackId: string): Pickup[] {
-  return [0.12, 0.36, 0.62, 0.84].flatMap((fraction, row) => {
-    const progress = fraction * getTrack(trackId).length, point = trackPoint(progress, trackId);
-    return [-3.6, 0, 3.6].map((offset, column) => ({ id: `pickup-${row}-${column}`,
-      x: point.x + Math.cos(point.angle) * offset, z: point.z - Math.sin(point.angle) * offset,
-      progress, elevation: trackElevation(progress, trackId), cooldown: 0 }));
-  });
+  return PICKUP_ROWS.flatMap((_, row) => PICKUP_OFFSETS.map((_, column) => ({ id: `pickup-${row}-${column}`,
+    ...pickupPlacement(trackId, row, column), cooldown: 0 })));
+}
+
+/** The shared phase can bar a road: its standard cubes move, keeping their cooldowns. */
+function relocatePickups(world: World): void {
+  for (const pickup of world.pickups) {
+    const match = /^pickup-(\d)-(\d)$/.exec(pickup.id);
+    if (match && Number(match[1]) < PICKUP_ROWS.length && Number(match[2]) < PICKUP_OFFSETS.length)
+      Object.assign(pickup, pickupPlacement(world.trackId, Number(match[1]), Number(match[2]), world.eventStage, world.eventLevel));
+  }
 }
 
 export function startRace(world: World): void {
@@ -140,6 +176,7 @@ export function startRace(world: World): void {
   world.eventStage = 0;
   world.trackId = getTrack(world.trackId).id;
   world.pickups = [...makePickups(world.trackId), ...trackEventPickups(world.trackId, 0, world.eventLevel)];
+  relocatePickups(world);
   resetWorldFun(world); resetTrackInteractions(world);
   let index = 0;
   for (const kart of world.players) {
@@ -206,7 +243,13 @@ function routeHint(kart: Kart): { progress?: number; elevation: number } {
 // Only deterministic movement belongs here, so clients can replay acknowledged
 // input frames. Progression, other karts and all item effects stay in stepWorld.
 export function stepKart(kart: Kart, input: Input, dt: number): void {
-  if (!Number.isFinite(dt) || dt <= 0 || kart.spectator || kart.finished || kart.abandoned) return;
+  if (!Number.isFinite(dt) || dt <= 0 || kart.spectator || kart.abandoned) return;
+  // A finisher brakes to a stop past the line instead of freezing on it: the
+  // prediction, still a few frames ahead, is no longer pulled backwards.
+  if (kart.finished) {
+    if (kart.speed === 0 && !kart.airborne) return;
+    input = { ...neutralInput(input.seq, input.epoch), brake: true };
+  }
   dt = Math.min(dt, 0.1);
   kart.fun = { ...(kart.fun ?? freshRaceFun()), wallSeconds: Math.max(0, (kart.fun?.wallSeconds ?? 0) - dt * .6) };
   kart.interactionTime = (kart.interactionTime ?? 0) + dt;
@@ -422,7 +465,7 @@ function advanceCheckpoint(kart: Kart, before: { x: number; z: number; elevation
         kart.finished = true;
         kart.finishTime = world.raceTime;
         kart.progress = getTrackLapCount(track.id) * track.length;
-        kart.speed = 0;
+        kart.boost = 0; kart.driftCharge = 0; kart.driftDirection = 0;
         if (world.finishTimeout === 0) world.finishTimeout = FINISH_GRACE_SECONDS;
       }
     }
@@ -460,7 +503,8 @@ function awardItem(world: World, kart: Kart): void {
   const trailing = ahead > 0 && ahead >= (active.length - 1) / 2;
   const base = ahead === 0 ? [35, 10, 20, 20, 0, 0, 3, 12]
     : trailing ? [12, 25, 5, 8, 18, 12, 14, 6] : [22, 18, 12, 15, 18, 5, 5, 5];
-  const { weights, seconds } = ahead === 0 || world.crown ? { weights: base, seconds: 0 } : recoveryItemWeights(world, kart, base);
+  const { weights, seconds } = world.raceTime < START_GRACE_SECONDS && !world.crown ? { weights: [60, 0, 0, 0, 0, 0, 0, 40], seconds: 0 }
+    : ahead === 0 || world.crown ? { weights: base, seconds: 0 } : recoveryItemWeights(world, kart, base);
   let roll = random(world) * 100;
   let item: typeof ITEMS[number] = 'turbo';
   for (let i = 0; i < ITEMS.length; i++) { roll -= weights[i]!; if (roll < 0) { item = ITEMS[i]!; break; } }
@@ -775,7 +819,8 @@ export function stepWorld(world: World, inputs: Map<string, Input>, dt: number):
     return;
   }
   if (world.phase !== 'racing') return;
-  world.eventStage = Math.max(world.eventStage, Math.min(getTrackLapCount(world.trackId)-1, Math.max(0, ...world.players.filter(kart => !kart.spectator && !kart.abandoned).map(kart => kart.lap))));
+  const eventStage = Math.max(world.eventStage, Math.min(getTrackLapCount(world.trackId)-1, Math.max(0, ...world.players.filter(kart => !kart.spectator && !kart.abandoned).map(kart => kart.lap))));
+  if (eventStage !== world.eventStage) { world.eventStage = eventStage; relocatePickups(world); }
   for (const kart of world.players) { kart.eventStage = world.eventStage; kart.eventLevel = world.eventLevel; }
   world.raceTime += dt;
   if (world.finishTimeout > 0) world.finishTimeout = Math.max(1e-8, world.finishTimeout - dt);
@@ -800,6 +845,8 @@ export function stepWorld(world: World, inputs: Map<string, Input>, dt: number):
     kart.itemLatch = input.use;
   }
   collideKarts(racers, world);
+  // Earlier finishers keep rolling to their stop; they no longer race or collide.
+  for (const kart of world.players) if (kart.finished && !racers.includes(kart)) stepKart(kart, neutralInput(), dt);
   for (const kart of racers) advanceCheckpoint(kart, previousPositions.get(kart.id)!, world);
   for (const kart of racers) updateRaceFun(world, kart, kart.connected ? inputs.get(kart.id) ?? neutralInput() : neutralInput(), funPositions.get(kart.id)!, dt, resets.has(kart.id));
   resolveTeamRelays(world);
@@ -810,7 +857,7 @@ export function stepWorld(world: World, inputs: Map<string, Input>, dt: number):
     if (pickup.cooldown > 0) continue;
     const kart = racers.find(player => player.connected && !player.finished && !player.item && Math.hypot(player.x - pickup.x, player.z - pickup.z) < 2.8 &&
       Math.abs(player.elevation - (pickup.elevation ?? trackElevation(pickup.progress ?? nearestTrack(pickup.x, pickup.z, world.trackId).progress, world.trackId))) < 2.8);
-    if (kart) { awardItem(world, kart); pickup.cooldown = 7; }
+    if (kart) { awardItem(world, kart); pickup.cooldown = PICKUP_RESPAWN_SECONDS; }
   }
   const ordered = standings(world);
   ordered.forEach((kart, index) => { kart.rank = index + 1; });

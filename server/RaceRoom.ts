@@ -23,7 +23,16 @@ import { createPartyState, startPartyVote, castPartyVote, resolvePartyVote, Race
 const activeRoomIds = new Set<string>();
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const colors = ['#ff6b6b', '#45d9b0', '#60a5fa', '#ffcf5c', '#bb8cff', '#ff9bc9', '#ff9a52', '#eef4ff'];
-type Incoming = { input: Input; receivedAt: number; acceptedSeq: number };
+// A short ordered buffer: one command per simulation tick, as the client predicted
+// them. Network jitter no longer drops or repeats movement frames.
+type Incoming = { input: Input; queue: Input[]; receivedAt: number; acceptedSeq: number; backlog: number };
+const MAX_BUFFERED_INPUTS = 3;
+const BACKLOG_TICKS = 45;
+/** Drop the oldest buffered command; its one-frame item/reset press survives. */
+function skipInput(queue: Input[]) {
+  const skipped = queue.shift();
+  if (skipped && queue[0]) { queue[0].use ||= skipped.use; queue[0].reset ||= skipped.reset; }
+}
 type Rate = { startedAt: number; messages: number; violations: number };
 
 function profile(options: unknown, index: number, previous?: Kart, careerLevel = 0) {
@@ -281,7 +290,7 @@ export class RaceRoom extends Room {
 
   private initializeInputs(kart: Kart) {
     this.inputs.set(kart.id, {
-      input: neutralInput(kart.lastSeq, kart.epoch), receivedAt: 0, acceptedSeq: kart.lastSeq,
+      input: neutralInput(kart.lastSeq, kart.epoch), queue: [], receivedAt: 0, acceptedSeq: kart.lastSeq, backlog: 0,
     });
     this.rates.set(kart.id, { startedAt: Date.now(), messages: 0, violations: 0 });
   }
@@ -311,15 +320,12 @@ export class RaceRoom extends Room {
     const input = validateInput(data);
     const previous = this.inputs.get(kart.id)!;
     // Epoch invalidates every command from the previous transport connection.
-    // Keep only the newest command: no queued burst can advance the simulation.
     if (!input || input.epoch !== kart.epoch || input.seq <= previous.acceptedSeq) return;
-    // A one-frame item/reset press must survive two packets arriving in one tick.
-    // The movement command still collapses to the latest sample, never a queue.
-    if (previous.acceptedSeq > kart.lastSeq) {
-      input.use ||= previous.input.use;
-      input.reset ||= previous.input.reset;
-    }
-    this.inputs.set(kart.id, { input, acceptedSeq: input.seq, receivedAt: Date.now() });
+    // Each tick consumes exactly one command, so a burst can never advance the
+    // simulation: beyond the small buffer, the oldest movement frames are dropped.
+    previous.queue.push(input);
+    while (previous.queue.length > MAX_BUFFERED_INPUTS) skipInput(previous.queue);
+    previous.acceptedSeq = input.seq; previous.receivedAt = Date.now();
   }
 
   private beginRace(client: Client) {
@@ -596,6 +602,13 @@ export class RaceRoom extends Room {
       const controls = new Map<string, Input>();
       for (const kart of this.world.players) {
         const incoming = this.inputs.get(kart.id);
+        if (incoming && !kart.cpu) {
+          // A buffer that stays deep only adds latency: trim one frame now and then.
+          incoming.backlog = incoming.queue.length >= 2 ? incoming.backlog + 1 : 0;
+          if (incoming.backlog > BACKLOG_TICKS) { skipInput(incoming.queue); incoming.backlog = 0; }
+          // With nothing new, the last command is held until the input timeout.
+          if (incoming.queue.length) incoming.input = incoming.queue.shift()!;
+        }
         controls.set(kart.id, kart.cpu ? getCpuInput(kart, kart.lastSeq + 1, this.world, this.world.eventLevel / 3) : kart.connected && incoming && now - incoming.receivedAt <= config.inputTimeoutMs
           ? incoming.input : neutralInput(kart.lastSeq, kart.epoch));
       }
