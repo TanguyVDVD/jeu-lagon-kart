@@ -273,7 +273,9 @@ export function stepKart(kart: Kart, input: Input, dt: number): void {
   const ice = kart.surface === 'ice';
   kart.padCooldown = Math.max(0, kart.padCooldown - dt);
   const pad = contact.zone?.kind === 'boost' ? contact.zone : undefined;
-  if (pad && !kart.airborne && kart.padZone !== pad.id && kart.padCooldown === 0 && kart.padLaps[pad.id] !== kart.lap &&
+  // Each strip pays once per lap. Two strips placed close together both work:
+  // the cooldown only ever concerned re-entering the strip just used.
+  if (pad && !kart.airborne && kart.padZone !== pad.id && kart.padLaps[pad.id] !== kart.lap &&
       kart.speed > 5 && Math.cos(kart.angle - position.angle) > 0.3 && kart.stun === 0) {
     kart.boost = Math.max(kart.boost, 1.05);
     kart.padCooldown = 2.5;
@@ -416,7 +418,7 @@ function random(world: World): number {
   return world.seed / 0x100000000;
 }
 
-function advanceCheckpoint(kart: Kart, before: { x: number; z: number; elevation: number }, world: World): void {
+function advanceCheckpoint(kart: Kart, before: { x: number; z: number; elevation: number; progress?: number }, world: World): void {
   const track = getTrack(world.trackId);
   const checkpoints = track.checkpoints;
   const epsilon = 1e-7;
@@ -451,6 +453,22 @@ function advanceCheckpoint(kart: Kart, before: { x: number; z: number; elevation
         if (!kart.airborne && Math.abs(elevation - trackElevation(gate.progress, track.id)) > KART_COLLISION_HEIGHT) continue;
       }
       if (!crossing || fraction < crossing.fraction) crossing = { gate, fraction };
+    }
+    // A flat gate is only as wide as the road. Around a tight bend the legal
+    // outer shoulder passes beside it and the inside line never meets its
+    // plane, so a kart that stays on the road and drives forward past the
+    // gate's distance validates it as well.
+    if (!crossing && lastCrossing < 0) {
+      const from = nearestDriveableTrack(before.x, before.z, track.id, kart.eventStage, kart.eventLevel, { progress: before.progress ?? kart.routeProgress ?? kart.progress, elevation: before.elevation });
+      const to = nearestDriveableTrack(kart.x, kart.z, track.id, kart.eventStage, kart.eventLevel, routeHint(kart));
+      const ahead = (value: number) => ((value % track.length) + track.length) % track.length;
+      const advance = ahead(to.progress - from.progress);
+      const gate = gates.find(candidate => candidate.branchId === to.branchId);
+      if (gate && from.branchId === to.branchId && advance > epsilon && advance <= 60 && kart.speed > 0 &&
+          ahead(gate.progress - from.progress) >= 0 && ahead(gate.progress - from.progress) <= advance &&
+          to.distance <= to.width / 2 + trackBoundaryShoulder(to.progress, track.id, to.branchId) + .05 &&
+          (kart.airborne || Math.abs(kart.elevation - trackElevation(gate.progress, track.id)) <= KART_COLLISION_HEIGHT + 1))
+        crossing = { gate, fraction: 1 };
     }
     if (!crossing) break;
     const { gate, fraction } = crossing;
@@ -827,20 +845,20 @@ export function stepWorld(world: World, inputs: Map<string, Input>, dt: number):
   const racers = world.players.filter(kart => !kart.spectator && !kart.finished && !kart.abandoned);
   chargeDraft(world, racers, dt);
   if (world.crown) beforeCrownStep(world);
-  const previousPositions = new Map<string, { x: number; z: number; elevation: number }>();
+  const previousPositions = new Map<string, { x: number; z: number; elevation: number; progress?: number }>();
   const funPositions = new Map<string, ReturnType<typeof captureFunMovement>>();
   const resets = new Set<string>();
   for (const kart of racers) {
     const input = kart.connected ? inputs.get(kart.id) ?? neutralInput() : neutralInput();
     kart.interactions = world.interactions; kart.interactionTime = world.time - dt;
     funPositions.set(kart.id, captureFunMovement(kart));
-    previousPositions.set(kart.id, { x: kart.x, z: kart.z, elevation: kart.elevation });
+    previousPositions.set(kart.id, { x: kart.x, z: kart.z, elevation: kart.elevation, progress: kart.routeProgress });
     // A reset teleports to a validated checkpoint and must never cross a gate.
     const resetTriggered = input.reset && !kart.resetLatch && kart.resetCooldown <= dt;
     stepKart(kart, input, dt);
     if (resetTriggered) resets.add(kart.id);
     else triggerTrackInteractions(world, kart, previousPositions.get(kart.id)!.x, previousPositions.get(kart.id)!.z);
-    if (resetTriggered) previousPositions.set(kart.id, { x: kart.x, z: kart.z, elevation: kart.elevation });
+    if (resetTriggered) previousPositions.set(kart.id, { x: kart.x, z: kart.z, elevation: kart.elevation, progress: kart.routeProgress });
     if (input.use && !kart.itemLatch) useItem(world, kart);
     kart.itemLatch = input.use;
   }
