@@ -64,7 +64,7 @@ function addMesh(parent: THREE.Object3D, geometry: THREE.BufferGeometry, materia
   position: [number, number, number], scale: [number, number, number] = [1, 1, 1]) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(...position); mesh.scale.set(...scale);
-  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.castShadow = false; mesh.receiveShadow = true;
   parent.add(mesh);
   return mesh;
 }
@@ -145,6 +145,38 @@ function addDriver(root: THREE.Group, body: THREE.Object3D, fallback: boolean) {
   }
 }
 
+const ANIMATED_PARTS = new Set<string>(['Body', ...WHEEL_NAMES, 'CharacterHead', 'CharacterMouth', 'CharacterBrows', 'CharacterWaveArm']);
+/** Each part that moves on its own keeps one mesh per material: a kart costs
+ * about ten draw calls instead of more than twenty. */
+function mergeRigidParts(root: THREE.Group) {
+  root.updateMatrixWorld(true);
+  const batches = new Map<string, { owner: THREE.Object3D; material: THREE.Material; meshes: THREE.Mesh[] }>();
+  root.traverse(node => {
+    const object = node as THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
+    if (!(node instanceof THREE.Mesh) || 'isSkinnedMesh' in node || 'isInstancedMesh' in node || Array.isArray(node.material) ||
+      ANIMATED_PARTS.has(object.name) || object.children.length || Object.keys(object.geometry.morphAttributes).length) return;
+    let owner: THREE.Object3D = object.parent!;
+    while (owner !== root && !ANIMATED_PARTS.has(owner.name)) owner = owner.parent!;
+    const attributes = Object.keys(object.geometry.attributes).sort().map(name => name + object.geometry.attributes[name]!.itemSize).join(',');
+    const key = owner.uuid + ':' + object.material.uuid + ':' + attributes;
+    const batch = batches.get(key) ?? { owner, material: object.material, meshes: [] };
+    batch.meshes.push(object); batches.set(key, batch);
+  });
+  for (const { owner, material, meshes } of batches.values()) {
+    if (meshes.length < 2) continue;
+    const inverse = owner.matrixWorld.clone().invert();
+    const parts = meshes.map(mesh => {
+      const geometry = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+      return geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld));
+    });
+    const merged = mergeGeometries(parts);
+    for (const part of parts) part.dispose();
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, material); mesh.name = material.name; owner.add(mesh);
+    for (const original of meshes) original.removeFromParent();
+  }
+}
+
 function prepare(root: THREE.Group, source: 'asset' | 'fallback', characterId: CharacterId = DEFAULT_CHARACTER): PreparedKart {
   const body = root.getObjectByName('Body');
   if (!body || WHEEL_NAMES.some(name => !root.getObjectByName(name))) throw new Error('Le modèle de kart ne contient pas ses pièces animables.');
@@ -158,6 +190,7 @@ function prepare(root: THREE.Group, source: 'asset' | 'fallback', characterId: C
   if (!paintFound) throw new Error('Le modèle de kart ne contient pas sa peinture personnalisable.');
   if (characterId === 'racer') addDriver(root, body, source === 'fallback');
   else addCartoonDriver(root, body, characterId, source === 'fallback');
+  mergeRigidParts(root);
   root.updateMatrixWorld(true);
   const dimensions = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3());
   const wheelSize = new THREE.Box3().setFromObject(root.getObjectByName('Wheel_FL')!).getSize(new THREE.Vector3());
@@ -165,7 +198,9 @@ function prepare(root: THREE.Group, source: 'asset' | 'fallback', characterId: C
   let meshCount = 0, triangles = 0;
   root.traverse(object => {
     if (!(object instanceof THREE.Mesh)) return;
-    object.castShadow = true; object.receiveShadow = true;
+    // The blob under each kart is its shadow: karts stay out of the sun's
+    // shadow map, which is then rendered once per circuit instead of every frame.
+    object.castShadow = false; object.receiveShadow = true;
     geometries.add(object.geometry); sharedGeometry.add(object.geometry);
     meshCount += 1; triangles += (object.geometry.index?.count ?? object.geometry.getAttribute('position').count) / 3;
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) {

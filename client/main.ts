@@ -647,6 +647,8 @@ function updateUI(now: number, force = false) {
 const mapCanvas = el<HTMLCanvasElement>('minimap');
 const mapContext = mapCanvas.getContext('2d')!;
 let mapTrackId = '', mapScale = 1, mapCenterX = 0, mapCenterZ = 0;
+const mapLayer = document.createElement('canvas'); mapLayer.width = 240; mapLayer.height = 180;
+let mapLayerKey = '';
 const mapX = (x: number) => 120 + (x - mapCenterX) * mapScale;
 const mapZ = (z: number) => 90 + (z - mapCenterZ) * mapScale;
 function drawMap(players: Kart[]) {
@@ -663,40 +665,48 @@ function drawMap(players: Kart[]) {
     mapCenterX = (minX + maxX) / 2; mapCenterZ = (minZ + maxZ) / 2;
     mapScale = Math.min(204 / (maxX - minX), 136 / (maxZ - minZ));
   }
-  mapContext.clearRect(0, 0, 240, 180);
-  mapContext.beginPath(); track.points.forEach((point, i) => i ? mapContext.lineTo(mapX(point.x), mapZ(point.z)) : mapContext.moveTo(mapX(point.x), mapZ(point.z))); mapContext.closePath();
-  mapContext.lineJoin = 'round'; mapContext.lineCap = 'round'; mapContext.strokeStyle = 'rgba(240,247,233,.3)'; mapContext.lineWidth = Math.max(4, track.width * mapScale); mapContext.stroke();
-  mapContext.strokeStyle = '#eff4dc'; mapContext.lineWidth = 1.7; mapContext.stroke();
-  for (const zone of track.zones) {
-    mapContext.beginPath();
-    for (let i = 0; i <= 8; i++) { const p = trackPoint(zone.start + (zone.end - zone.start) * i / 8, track.id); if (i) mapContext.lineTo(mapX(p.x), mapZ(p.z)); else mapContext.moveTo(mapX(p.x), mapZ(p.z)); }
-    mapContext.lineWidth = 4; mapContext.strokeStyle = zone.kind === 'boost' ? '#ffd477' : zone.kind === 'ice' ? '#80ecf4' : '#b07d62'; mapContext.stroke();
-  }
-  for (const route of event.branches) {
-    const color = route.kind === 'detour' ? '#ffe28c' : route.kind === 'shortcut' ? '#83f6b7' : '#a4e6ff';
-    mapContext.beginPath();
-    route.points.forEach((point, index) => index ? mapContext.lineTo(mapX(point.x), mapZ(point.z)) : mapContext.moveTo(mapX(point.x), mapZ(point.z)));
-    mapContext.strokeStyle = route.open ? color : 'rgba(164,181,181,.65)';
-    mapContext.lineWidth = route.open ? Math.max(2.8, route.width * mapScale) : 1.5;
-    mapContext.setLineDash(route.open ? [] : [3, 4]); mapContext.stroke(); mapContext.setLineDash([]);
-    if (!route.open) {
-      const midpoint = route.points[Math.floor(route.points.length / 2)]!;
-      mapContext.font = 'bold 9px system-ui'; mapContext.fillStyle = '#d3ded7'; mapContext.fillText('T3', mapX(midpoint.x) + 4, mapZ(midpoint.z) - 4);
+  // The circuit, its zones and branches only change with the shared phase:
+  // they are painted once, then only the karts are redrawn every frame.
+  const layerKey = mapKey + ':' + event.stage;
+  if (layerKey !== mapLayerKey) {
+    mapLayerKey = layerKey;
+    const layer = mapLayer.getContext('2d')!;
+    layer.clearRect(0, 0, 240, 180);
+    layer.beginPath(); track.points.forEach((point, i) => i ? layer.lineTo(mapX(point.x), mapZ(point.z)) : layer.moveTo(mapX(point.x), mapZ(point.z))); layer.closePath();
+    layer.lineJoin = 'round'; layer.lineCap = 'round'; layer.strokeStyle = 'rgba(240,247,233,.3)'; layer.lineWidth = Math.max(4, track.width * mapScale); layer.stroke();
+    layer.strokeStyle = '#eff4dc'; layer.lineWidth = 1.7; layer.stroke();
+    for (const zone of track.zones) {
+      layer.beginPath();
+      for (let i = 0; i <= 8; i++) { const p = trackPoint(zone.start + (zone.end - zone.start) * i / 8, track.id); if (i) layer.lineTo(mapX(p.x), mapZ(p.z)); else layer.moveTo(mapX(p.x), mapZ(p.z)); }
+      layer.lineWidth = 4; layer.strokeStyle = zone.kind === 'boost' ? '#ffd477' : zone.kind === 'ice' ? '#80ecf4' : '#b07d62'; layer.stroke();
     }
+    for (const route of event.branches) {
+      const color = route.kind === 'detour' ? '#ffe28c' : route.kind === 'shortcut' ? '#83f6b7' : '#a4e6ff';
+      layer.beginPath();
+      route.points.forEach((point, index) => index ? layer.lineTo(mapX(point.x), mapZ(point.z)) : layer.moveTo(mapX(point.x), mapZ(point.z)));
+      layer.strokeStyle = route.open ? color : 'rgba(164,181,181,.65)';
+      layer.lineWidth = route.open ? Math.max(2.8, route.width * mapScale) : 1.5;
+      layer.setLineDash(route.open ? [] : [3, 4]); layer.stroke(); layer.setLineDash([]);
+      if (!route.open) {
+        const midpoint = route.points[Math.floor(route.points.length / 2)]!;
+        layer.font = 'bold 9px system-ui'; layer.fillStyle = '#d3ded7'; layer.fillText('T3', mapX(midpoint.x) + 4, mapZ(midpoint.z) - 4);
+      }
+    }
+    for (const blocker of event.blockers) {
+      const acrossX = Math.cos(blocker.angle) * blocker.halfWidth, acrossZ = -Math.sin(blocker.angle) * blocker.halfWidth;
+      layer.beginPath(); layer.moveTo(mapX(blocker.x - acrossX), mapZ(blocker.z - acrossZ));
+      layer.lineTo(mapX(blocker.x + acrossX), mapZ(blocker.z + acrossZ));
+      layer.strokeStyle = '#ff7773'; layer.lineWidth = 4; layer.stroke();
+      layer.font = 'bold 12px system-ui'; layer.fillStyle = '#ffb4a2'; layer.fillText('×', mapX(blocker.x) - 4, mapZ(blocker.z) + 4);
+    }
+    if (event.branches.length) {
+      layer.font = '8px system-ui'; layer.fillStyle = '#ffe28c'; layer.fillText('Déviation', 15, 174);
+      layer.fillStyle = '#83f6b7'; layer.fillText('Raccourci', 81, 174);
+      layer.fillStyle = '#a4e6ff'; layer.fillText('Turbo', 149, 174);
+    }
+    mapCanvas.setAttribute('aria-label', 'Carte du circuit ' + track.name + '. ' + event.title);
   }
-  for (const blocker of event.blockers) {
-    const acrossX = Math.cos(blocker.angle) * blocker.halfWidth, acrossZ = -Math.sin(blocker.angle) * blocker.halfWidth;
-    mapContext.beginPath(); mapContext.moveTo(mapX(blocker.x - acrossX), mapZ(blocker.z - acrossZ));
-    mapContext.lineTo(mapX(blocker.x + acrossX), mapZ(blocker.z + acrossZ));
-    mapContext.strokeStyle = '#ff7773'; mapContext.lineWidth = 4; mapContext.stroke();
-    mapContext.font = 'bold 12px system-ui'; mapContext.fillStyle = '#ffb4a2'; mapContext.fillText('×', mapX(blocker.x) - 4, mapZ(blocker.z) + 4);
-  }
-  if (event.branches.length) {
-    mapContext.font = '8px system-ui'; mapContext.fillStyle = '#ffe28c'; mapContext.fillText('Déviation', 15, 174);
-    mapContext.fillStyle = '#83f6b7'; mapContext.fillText('Raccourci', 81, 174);
-    mapContext.fillStyle = '#a4e6ff'; mapContext.fillText('Turbo', 149, 174);
-  }
-  mapCanvas.setAttribute('aria-label', 'Carte du circuit ' + track.name + '. ' + event.title);
+  mapContext.clearRect(0, 0, 240, 180); mapContext.drawImage(mapLayer, 0, 0);
   for (const p of players) {
     if (p.spectator || p.abandoned) continue;
     mapContext.beginPath(); mapContext.arc(mapX(p.x), mapZ(p.z), p.id === room?.sessionId ? 5 : 3.5, 0, Math.PI * 2); mapContext.fillStyle = p.color; mapContext.fill();

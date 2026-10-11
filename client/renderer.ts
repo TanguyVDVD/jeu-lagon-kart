@@ -112,7 +112,7 @@ export class GameRenderer {
   private shoulders: RoadEdgePoint[][] = [];
   private readonly aim = new THREE.Vector3();
   private readonly centre = new THREE.Vector3();
-  private shadowFrame = 0;
+  private shadowRevision = -1;
   // Keep nearby karts visible; the distant panorama uses a larger near plane
   // below so road ribbons a centimetre apart retain distinct depth values.
   private readonly camera = new THREE.PerspectiveCamera(52, 1, 1, 900);
@@ -176,7 +176,8 @@ export class GameRenderer {
     this.scene.add(this.hemisphere, this.scenery, this.openings);
     const sun = this.sun;
     sun.position.set(-90, 150, 60); sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    // Rendered once per circuit (see render()), so it can afford to be sharp.
+    sun.shadow.mapSize.set(4096, 4096);
     Object.assign(sun.shadow.camera, { left: -170, right: 170, top: 170, bottom: -170, far: 400 });
     sun.shadow.normalBias = 0.12;
     // The renderer refreshes the shadow map itself, on alternate race frames.
@@ -216,7 +217,7 @@ export class GameRenderer {
     const changed = this.quality !== this.graphics.quality;
     this.quality = this.graphics.quality;
     this.renderer.setPixelRatio(this.graphics.pixelRatio(devicePixelRatio));
-    this.renderer.shadowMap.enabled = this.quality === 'standard';
+    this.renderer.shadowMap.enabled = this.quality === 'standard'; this.sun.shadow.needsUpdate = true;
     if (changed) {
       // Rebuild only for a real detail change, keeping road/collision markers.
       this.setTrack(this.track.id, true);
@@ -294,7 +295,7 @@ export class GameRenderer {
     });
     for (const batch of batches.values()) {
       const geometry = mergeGeometries(batch.geometries);
-      if (geometry) { const mesh = new THREE.Mesh(geometry, batch.material); mesh.castShadow = batch.cast; mesh.receiveShadow = batch.receive; root.add(mesh); }
+      if (geometry) { const mesh = new THREE.Mesh(geometry, batch.material); mesh.castShadow = batch.cast; mesh.receiveShadow = batch.receive; mesh.matrixAutoUpdate = false; root.add(mesh); }
       for (const part of batch.geometries) part.dispose();
     }
     const originalsGeometry = new Set(originals.map(object => object.geometry));
@@ -436,6 +437,8 @@ export class GameRenderer {
     const bubble = new THREE.Mesh(shieldGeometry, shieldMaterial); bubble.position.y = 1; bubble.scale.set(1.6, 1.5, 2.4);
     const rim = new THREE.Mesh(auraGeometry, shieldRimMaterial); rim.rotation.x = Math.PI / 2; rim.scale.set(0.85, 1.3, 1); rim.position.y = 0.35;
     shield.add(bubble, rim); shield.visible = false; group.add(shield);
+    // Sparks and flames never darken the static shadow map either.
+    group.traverse(part => { part.castShadow = false; });
     const nameLabel = label(name); group.add(nameLabel);
     const visual: KartVisual = { group, shadow, model: null, modelId: normalizeKartModelId(modelId), characterId: normalizeCharacterId(characterId), modelVersion: 0, alive: true, sparks, flames, energy, shield, label: nameLabel, name, color };
     this.setKartModel(visual, modelId, characterId);
@@ -573,9 +576,9 @@ export class GameRenderer {
       visual.label.scale.set(4.4 * scale, .92 * scale, 1);
     }
     this.trackEvents.updateCamera(this.camera);
-    // Moving shadows are soft and small: refreshing the map every other race
-    // frame (and rarely in the slow menu orbit) halves its cost unnoticed.
-    if (this.shadowFrame++ % (racing ? 2 : 20) === 0) this.sun.shadow.needsUpdate = true;
+    // Nothing that moves casts into the sun's map (karts and items carry their
+    // own blob), so it is only redrawn when the static scene changes.
+    if (this.trackEvents.revision !== this.shadowRevision) { this.shadowRevision = this.trackEvents.revision; this.sun.shadow.needsUpdate = true; }
     this.renderer.render(this.scene, this.camera);
     this.renderedFrames++;
     return true;
@@ -593,6 +596,7 @@ export class GameRenderer {
         visual = new THREE.Group();
         const cube = box('#a5ffe9', 0, 0, 0, 1.7, 1.7, 1.7); (cube.material as THREE.MeshStandardMaterial) = material('#8ce8d0', 0.2);
         visual.add(cube, mysteryBadge());
+        cube.castShadow = false;
         this.pickups.set(pickup.id, visual); this.scene.add(visual);
       }
       visual.visible = pickup.cooldown <= 0 && !this.collectedPickups.has(pickup.id);
@@ -618,6 +622,7 @@ export class GameRenderer {
             box('#e7faff', 0, 1.5, 0, 2.1, 0.18, 0.4), mesh(sphereGeometry, '#9edcff', 0, 1.5, -1.3, 0.45, 0.45, 1));
           const crown = mesh(starGeometry, '#fff28e', 0, 2.6, 0); visual.add(crown);
         } else visual.add(mesh(sphereGeometry, '#62d982', 0, 0.85, 0, 0.85, 0.65, 1.2), box('#fff0cc', 0, 0.85, 0, 1.8, 0.15, 0.3));
+        visual.traverse(part => { part.castShadow = false; });
         this.objects.set(object.id, visual); this.scene.add(visual);
       }
       visual.position.set(object.x, surfaceY(object), object.z); visual.rotation.y = object.angle;

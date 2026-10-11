@@ -61,6 +61,8 @@ function ribbon(points: Array<Vec2 & { progress?: number; angle?: number }>, wid
 export class TrackEventsView {
   readonly group = new THREE.Group();
   private key = '';
+  /** Incremented whenever the debris and signs are rebuilt. */
+  revision = 0;
   private trackId = 'lagon';
   private readonly box = new THREE.BoxGeometry(1, 1, 1);
   private readonly rock = new THREE.IcosahedronGeometry(1, 0);
@@ -227,7 +229,7 @@ export class TrackEventsView {
     const base=getTrackEvent(trackId,stage,level),active=interactionZones(trackId,states,time);
     const event=active.length?{...base,zones:[...active,...(base.zones??[])]}:base;
     const key = [event.trackId,event.stage,event.level,...(getTrack(trackId).interactions??[]).map(module=>`${module.id}:${interactionStatus(module,states,time)}`)].join(':');
-    if (key !== this.key) { this.key = key; this.rebuild(event,states,time); }
+    if (key !== this.key) { this.key = key; this.rebuild(event,states,time); this.revision++; }
     if (this.weather) {
       const positions = this.weather.geometry.getAttribute('position') as THREE.BufferAttribute;
       for (let i = 0; i < positions.count; i++) positions.setY(i, ((i * 9.167 - time * (this.weatherKind === 'snow' ? 2.3 : 9)) % 24 + 24) % 24);
